@@ -1,0 +1,46 @@
+name: ci
+
+# CI budget: 5 minutes max per job (user rule 2026-10-24). One job, one
+# worker, no network dependency: every test runs offline against fakes.
+# Native/E2E work (CDK synth, AWS deploy) lives in `deploy-check.yml`,
+# which never runs on a pull request.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: [self-hosted, marge-msp-worker]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout (shallow)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Lint (ruff)
+        run: |
+          python3 -m ruff --version
+          python3 -m ruff check src tests data infra scripts
+          python3 -m ruff format --check src tests data infra scripts
+
+      - name: Size guard (< 500 lines / < 50 per function)
+        run: python3 scripts/check_limits.py
+
+      - name: Tests
+        run: python3 -m pytest -m "not slow" --maxfail=20
+
+      - name: Demo smoke (generated data, offline)
+        run: python3 -m marge.cli smoke

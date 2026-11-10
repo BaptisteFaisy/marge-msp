@@ -1,0 +1,46 @@
+name: deploy-check
+
+# Out of the pull request path on purpose (CI budget 5 min): CDK synth and the
+# QuickSight asset bundle need node and boto3, which the PR worker does not
+# install. Runs after a merge on main, and on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - "src/marge/quicksight/**"
+      - ".github/workflows/deploy-check.yml"
+  workflow_dispatch: {}
+  schedule:
+    - cron: "20 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-check-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synth:
+    name: cdk-synth
+    runs-on: [self-hosted, marge-msp-worker]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Optional dependencies
+        run: |
+          python3 -m pip install --quiet --user boto3 pyyaml || echo "deps skipped"
+      - name: Asset bundle
+        run: python3 -m marge.cli assets --out infra/quicksight-assets --check
+      - name: CDK synth (skipped when node is missing)
+        run: |
+          if command -v node >/dev/null 2>&1; then
+            cd infra/cdk && python3 -m pip install --quiet --user -r requirements.txt && python3 app.py
+          else
+            echo "node absent du worker : synth reporte (voir docs/RUNBOOK.md)"
+          fi

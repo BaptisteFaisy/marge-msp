@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Generated demo data (reproducible with `python3 -m marge.cli generate`)
+data/generated/
+*.sqlite3
+*.db
+
+# AWS / CDK
+cdk.out/
+.cdk.staging/
+infra/quicksight-assets/*.generated.json
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Secrets — never commit anything that looks like a credential
+.env
+.env.*
+!.env.example
+*.pem
+secrets.*
