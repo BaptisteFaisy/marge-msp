@@ -16,8 +16,10 @@ from ..store.base import Store
 from .tables import columns_of, render_jsonl, rows_of
 from .writers import Writer
 
+FILE_FORMATS = {"jsonl": ("JSONL", ".jsonl"), "parquet": ("PARQUET", ".parquet")}
+DEFAULT_FORMAT = "jsonl"
+# Nom conservé pour les appelants qui lisaient l'ancien format unique.
 FILE_FORMAT = "JSONL"
-EXTENSION = ".jsonl"
 
 
 @dataclass(slots=True)
@@ -58,10 +60,10 @@ def months_of(store: Store, months: list[Month] | None) -> list[Month]:
     return sorted({row.month for row in store.list_margin_months()})
 
 
-def _keys_for(table: str, prefix: str, months: list[Month], partitioned: bool) -> list[str]:
+def _keys_for(table: str, prefix: str, months: list[Month], partitioned: bool, ext: str) -> list[str]:
     if not partitioned:
-        return [f"{prefix}/{table}/part-0{EXTENSION}"]
-    return [f"{prefix}/{table}/month={month}/part-0{EXTENSION}" for month in months]
+        return [f"{prefix}/{table}/part-0{ext}"]
+    return [f"{prefix}/{table}/month={month}/part-0{ext}" for month in months]
 
 
 def _month_of_key(key: str) -> str:
@@ -71,15 +73,26 @@ def _month_of_key(key: str) -> str:
     return key[start:].split("/")[0]
 
 
-def _payloads(table: str, rows: list[dict], keys: list[str], partitioned: bool) -> list[tuple[str, str]]:
+def _render(table: str, rows: list[dict], file_format: str) -> bytes:
+    """Encode one partition in the requested format."""
+    if file_format == "parquet":
+        from .parquet import to_parquet
+
+        return to_parquet(table, rows)
+    return render_jsonl(table, rows).encode("utf-8")
+
+
+def _payloads(
+    table: str, rows: list[dict], keys: list[str], partitioned: bool, file_format: str
+) -> list[tuple[str, bytes]]:
     """One payload per key: partitioned tables are split by month."""
     if not partitioned:
-        return [(keys[0], render_jsonl(table, rows))]
-    payloads: list[tuple[str, str]] = []
+        return [(keys[0], _render(table, rows, file_format))]
+    payloads: list[tuple[str, bytes]] = []
     for key in keys:
         month = _month_of_key(key)
         subset = [row for row in rows if str(row.get("month")) == month]
-        payloads.append((key, render_jsonl(table, subset)))
+        payloads.append((key, _render(table, subset, file_format)))
     return payloads
 
 
@@ -91,25 +104,35 @@ def publish(
     prefix: str = "analytical",
     database: str = "marge",
     bucket: str = "",
+    file_format: str = DEFAULT_FORMAT,
 ) -> PublishReport:
-    """Write every Annex A table through ``writer`` and return the report."""
+    """Write every Annex A table through ``writer`` and return the report.
+
+    ``file_format`` is ``jsonl`` (standard library, the default) or ``parquet``
+    (needs pyarrow, three to five times cheaper to query in Athena). The DDL
+    returned in the report always matches the format actually written.
+    """
+    chosen = file_format.lower()
+    if chosen not in FILE_FORMATS:
+        raise ValueError(f"unknown format {file_format!r}: use jsonl or parquet")
+    ddl_format, extension = FILE_FORMATS[chosen]
     targets = months_of(store, months)
     report = PublishReport(prefix=prefix.strip("/"))
 
     for spec in ANALYTICAL_TABLES:
         rows = rows_of(spec.name, store, targets)
         partitioned = bool(spec.partition_keys)
-        keys = _keys_for(spec.name, report.prefix, targets, partitioned)
+        keys = _keys_for(spec.name, report.prefix, targets, partitioned, extension)
         publication = TablePublication(table=spec.name, rows=len(rows))
-        for key, payload in _payloads(spec.name, rows, keys, partitioned):
+        for key, payload in _payloads(spec.name, rows, keys, partitioned, chosen):
             publication.keys.append(key)
-            publication.uris.append(writer.write(key, payload.encode("utf-8")))
+            publication.uris.append(writer.write(key, payload))
         report.tables.append(publication)
 
     report.ddls = all_analytical_ddls(
         database=database,
         bucket=bucket or "local",
         prefix=report.prefix,
-        file_format=FILE_FORMAT,
+        file_format=ddl_format,
     )
     return report
