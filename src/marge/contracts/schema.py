@@ -89,6 +89,25 @@ def parse_money(raw: object) -> Decimal:
         return Decimal("0")
 
 
+FRENCH_MONTHS = {
+    "janvier": 1,
+    "fevrier": 2,
+    "février": 2,
+    "mars": 3,
+    "avril": 4,
+    "mai": 5,
+    "juin": 6,
+    "juillet": 7,
+    "aout": 8,
+    "août": 8,
+    "septembre": 9,
+    "octobre": 10,
+    "novembre": 11,
+    "decembre": 12,
+    "décembre": 12,
+}
+
+
 def parse_date(raw: object) -> date | None:
     """Parse ``31/12/2026``, ``2026-12-31`` or ``31 décembre 2026``."""
     import re
@@ -102,6 +121,11 @@ def parse_date(raw: object) -> date | None:
     french = re.match(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})", text)
     if french:
         return date(int(french.group(3)), int(french.group(2)), int(french.group(1)))
+    words = re.match(r"(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\s+(\d{4})", text)
+    if words:
+        month = FRENCH_MONTHS.get(words.group(2).lower())
+        if month:
+            return date(int(words.group(3)), month, int(words.group(1)))
     return None
 
 

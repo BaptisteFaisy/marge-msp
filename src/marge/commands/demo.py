@@ -66,9 +66,9 @@ def _read_contracts(store, files, resolver) -> int:
 
 def demo(args: argparse.Namespace) -> int:
     """Run the full offline demo and print the key figures."""
-    from ..ingest import SourceFiles, load_month, load_reference_data
+    from ..ingest import SourceFiles, load_reference_data
     from ..match import MappingResolver
-    from ..pipeline import run_monthly, run_nightly
+    from ..pipeline import run_monthly
     from ..store import open_store
 
     root = Path(args.data)
@@ -94,13 +94,11 @@ def demo(args: argparse.Namespace) -> int:
         contracts = _read_contracts(store, files, resolver)
         print(f"contracts validated (demo): {contracts}")
 
-    month = Month.parse(args.month) if args.month else Month.parse(_latest_month(root))
-    for report in load_month(store, files, month):
-        print(f"load {report.source}: {report.rows} row(s), {report.unattributed_hours} h unattributed")
+    months = [Month.parse(args.month)] if args.month else _months_in(files)
+    for month in months:
+        _run_month(store, files, month)
 
-    nightly = run_nightly(store, store.load(), month=month, classifier=_classifier(store))
-    queued = nightly.queued_for_validation
-    print(f"nightly {nightly.month}: {nightly.classified} classified, {queued} to validate")
+    month = months[-1]
     _print_margins(store, month)
 
     if args.review:
@@ -112,6 +110,24 @@ def demo(args: argparse.Namespace) -> int:
     print(f"\ndatabase: {db}")
     print(f"portal:   python3 -m marge.cli serve --db {db}")
     return 0
+
+
+def _run_month(store, files, month: Month) -> None:
+    """Load one month, classify it, recompute it, and say what happened."""
+    from ..ingest import load_month
+    from ..pipeline import run_nightly
+
+    for report in load_month(store, files, month):
+        print(
+            f"load {report.source} {month}: {report.rows} row(s), "
+            f"{report.unattributed_hours} h non rattachées"
+        )
+    nightly = run_nightly(store, store.load(), month=month, classifier=_classifier(store))
+    queued = nightly.queued_for_validation
+    print(
+        f"nightly {nightly.month}: {nightly.classified} classées, "
+        f"{queued} à valider, couverture {nightly.coverage_percent} %"
+    )
 
 
 def _aliases(files) -> list:
@@ -134,13 +150,18 @@ def _classifier(store):
     return run
 
 
-def _latest_month(root: Path) -> str:
-    import json
+def _months_in(files) -> list[Month]:
+    """Every month the dataset covers, oldest first."""
+    import csv
+    import io
 
-    manifest = root / "manifest.json"
-    if manifest.exists():
-        return json.loads(manifest.read_text(encoding="utf-8")).get("last_month", "2026-10")
-    return "2026-10"
+    from ..ingest.loaders import read_text
+    from ..ingest.tickets import read_csv
+
+    rows = read_csv(read_text(files.interventions))
+    months = sorted({Month.parse(row["occurred_on"][:7]) for row in rows if row.get("occurred_on")})
+    _ = (csv, io)
+    return months or [Month.parse("2026-10")]
 
 
 def _print_margins(store, month: Month) -> None:

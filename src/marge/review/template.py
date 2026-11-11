@@ -72,9 +72,9 @@ def render_renewals(inputs: ReviewInputs) -> str:
     if not inputs.renewals:
         return EMPTY
     return "\n".join(
-        f"   {renewal.client_id} — échéance {renewal.end_date} — "
-        f"marge sur 6 mois {_percent(renewal.margin_rate_six_months)} — tendance {renewal.trend}"
-        for renewal in inputs.renewals
+        f"   {name} — échéance {watch.end_date} — "
+        f"marge sur 6 mois {_percent(watch.margin_rate_six_months)} — tendance {watch.trend}"
+        for name, watch in inputs.renewals
     )
 
 
