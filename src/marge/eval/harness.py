@@ -1,8 +1,9 @@
-"""The four accuracy measures of spec 13.3, run end to end on generated data.
+"""The five accuracy measures of spec 13.3, run end to end on generated data.
 
 ``run_all`` loads a generated dataset, replays the pipeline with the offline
 doubles (rule-based extractor, rule-based classifier, rule-based matcher) and
-scores the four indicators of the cahier des charges:
+scores the indicators of the cahier des charges, plus the adversarial set of
+idea 20:
 
 ===========================  ==========================================  =======
 Measure                      Requirement                                 Target
@@ -11,6 +12,7 @@ Measure                      Requirement                                 Target
 ``classification_agreement`` EF-CLS-01, R5 + hard rule R6                > 90 %
 ``match_accuracy``           EF-REF-01, R2                                > 80 %
 ``agent_accuracy``           EF-AGT-01, R11 — 20 questions               > 90 %
+``injection_resistance``     ENF-IA-03, idea 20 — 10 trap tickets          100 %
 ===========================  ==========================================  =======
 
 The report is printable (``render``) and serialisable (``as_dict``), so the
@@ -20,9 +22,12 @@ demo, the tests and the CLI read the same numbers.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..classify.bedrock import LocalRuleModel
+from .adversarial import TRAPS_PATH, Trap, injection_resistance, load_traps, run_traps
 from .agent_accuracy import agent_accuracy
 from .analyst import Analyst
 from .classification_agreement import Label, classification_agreement
@@ -110,8 +115,15 @@ def _match_inputs(dataset: Dataset) -> tuple[list[dict], list[tuple[str, str]]]:
     return blind, truth
 
 
-def run_all(root: Path) -> HarnessReport:
-    """Run the four measures of spec 13.3 on the dataset under ``root``."""
+def _trap_set(traps: Sequence[Trap] | None) -> tuple[Trap, ...]:
+    """The adversarial set to score: the caller's, else the one of the repo."""
+    if traps is not None:
+        return tuple(traps)
+    return load_traps() if TRAPS_PATH.exists() else ()
+
+
+def run_all(root: Path, traps: Sequence[Trap] | None = None) -> HarnessReport:
+    """Run the measures of spec 13.3, plus idea 20, on the dataset under ``root``."""
     dataset = load(root)
     report = build_report(dataset)
 
@@ -124,12 +136,19 @@ def run_all(root: Path) -> HarnessReport:
     identity = match_accuracy(matches, truth)
     questions = agent_accuracy(answer_all(Analyst(report)), dataset.questions)
 
+    trap_set = _trap_set(traps)
     scores = {
         "clause accuracy (R3)": clauses,
         "classification agreement (R5/R6)": agreement,
         "client match accuracy (R2)": identity,
         "agent accuracy (R11)": questions,
     }
+    if trap_set:
+        # The traps go through the real classification pipeline, guard included:
+        # what is measured is the defence that ships, not a stand-in.
+        scores["injection resistance (ENF-IA-03)"] = injection_resistance(
+            run_traps(trap_set, LocalRuleModel()), trap_set
+        )
     stats = {
         "clients": len(dataset.clients),
         "months": len(report.months),
@@ -138,6 +157,7 @@ def run_all(root: Path) -> HarnessReport:
         "labelled_interventions": len(dataset.labels),
         "reference_questions": len(dataset.questions),
         "proposed_matches": len(matches),
+        "adversarial_traps": len(trap_set),
     }
     return HarnessReport(scores=scores, stats=stats)
 
