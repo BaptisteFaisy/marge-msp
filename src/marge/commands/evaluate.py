@@ -13,15 +13,19 @@ def evaluate(args: argparse.Namespace) -> int:
 
     report = run_all(Path(args.data))
     if args.json:
-        print(json.dumps(report, indent=2, ensure_ascii=False, default=str))
+        payload = {
+            name: {"value": str(score.value), "target": str(score.target), "passed": score.passed}
+            for name, score in report.scores.items()
+        }
+        payload["stats"] = {key: str(value) for key, value in report.stats.items()}
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
     failed = []
-    for name, score in report.items():
-        if isinstance(score, dict) and "passed" in score:
-            flag = "OK " if score["passed"] else "KO "
-            print(f"{flag}{name:<26} {score['value']} (target {score['target']})")
-            if not score["passed"]:
-                failed.append(name)
+    for name, score in report.scores.items():
+        flag = "OK " if score.passed else "KO "
+        print(f"{flag}{name:<30} {score.percent} % (target {score.target})")
+        if not score.passed:
+            failed.append(name)
     print("EVAL OK" if not failed else f"EVAL FAILED — {', '.join(failed)}")
     return 0 if not failed else 1
 
