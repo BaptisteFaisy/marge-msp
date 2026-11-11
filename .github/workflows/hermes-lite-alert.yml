@@ -17,7 +17,7 @@ concurrency:
 jobs:
   alert:
     name: Lister les PR en conflit
-    runs-on: [self-hosted, marge-msp-worker]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '["self-hosted","marge-msp-worker"]') }}
     timeout-minutes: 5
     steps:
       - name: Rapport
