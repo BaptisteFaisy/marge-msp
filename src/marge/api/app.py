@@ -14,7 +14,10 @@ chapter 16 — nothing more — on top of any ``Store`` implementation:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from ..domain import Settings
 from ..store.base import Store
@@ -24,6 +27,7 @@ from .routes_validation import router as validation_router
 
 APP_TITLE = "Marge — validation portal API"
 APP_VERSION = "0.1.0"
+DEFAULT_PORTAL_DIR = Path(__file__).resolve().parents[3] / "portal"
 
 
 def create_app(
@@ -32,6 +36,7 @@ def create_app(
     auth_mode: AuthMode | str = AuthMode.DEV,
     *,
     cognito_config: CognitoConfig | None = None,
+    portal_dir: str | Path | None = None,
 ) -> FastAPI:
     """Build the portal API over ``store``.
 
@@ -47,4 +52,20 @@ def create_app(
     app.state.cognito_config = cognito_config
     app.include_router(validation_router)
     app.include_router(admin_router)
+    mount_portal(app, portal_dir)
     return app
+
+
+def mount_portal(app: FastAPI, portal_dir: str | Path | None = None) -> Path | None:
+    """Serve the static validation portal next to the JSON API (EF-VAL-01).
+
+    Mounted last, on ``/``: the ``/v1/*`` routers registered above keep
+    priority, so the API and the single-page portal share one origin — which is
+    what the demo URL given to the judges needs. A missing directory is not an
+    error: the API still runs headless.
+    """
+    directory = Path(portal_dir) if portal_dir else DEFAULT_PORTAL_DIR
+    if not (directory / "index.html").is_file():
+        return None
+    app.mount("/", StaticFiles(directory=str(directory), html=True), name="portal")
+    return directory
