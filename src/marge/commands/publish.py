@@ -20,7 +20,7 @@ def publish(args: argparse.Namespace) -> int:
     from ..store import open_store
 
     store = open_store(args.db)
-    writer = S3Writer(args.s3, args.prefix) if args.s3 else LocalWriter(args.out)
+    writer = S3Writer(args.s3) if args.s3 else LocalWriter(args.out)
     report = run_publish(
         store,
         writer,

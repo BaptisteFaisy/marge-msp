@@ -35,11 +35,16 @@ class LocalWriter:
 
 
 class S3Writer:
-    """Writes into an S3 bucket (the deployed curated zone)."""
+    """Writes into an S3 bucket (the deployed curated zone).
 
-    def __init__(self, bucket: str, prefix: str = "", client=None) -> None:
+    Keys are used as given: ``marge.publish`` already lays them out as
+    ``<prefix>/<table>/month=<YYYY-MM>/part-0.jsonl``, which is exactly what the
+    Athena ``LOCATION`` points at. Prepending a prefix here again would write
+    ``analytical/analytical/...`` and the external tables would read nothing.
+    """
+
+    def __init__(self, bucket: str, client=None) -> None:
         self.bucket = bucket
-        self.prefix = prefix.strip("/")
         self._client = client
 
     def _s3(self):
@@ -49,16 +54,12 @@ class S3Writer:
             self._client = boto3.client("s3")
         return self._client
 
-    def _key(self, key: str) -> str:
-        return f"{self.prefix}/{key}" if self.prefix else key
-
     def write(self, key: str, payload: bytes) -> str:
-        full = self._key(key)
-        self._s3().put_object(Bucket=self.bucket, Key=full, Body=payload, ContentType="text/csv")
+        self._s3().put_object(Bucket=self.bucket, Key=key, Body=payload, ContentType="application/x-ndjson")
         return self.uri(key)
 
     def uri(self, key: str) -> str:
-        return f"s3://{self.bucket}/{self._key(key)}"
+        return f"s3://{self.bucket}/{key}"
 
 
 class MemoryWriter:

@@ -192,3 +192,27 @@ def test_publish_needs_no_network(tmp_path) -> None:
 def test_unknown_table_is_rejected() -> None:
     with pytest.raises(KeyError):
         rows_of("table_inconnue", FakeStore(), [])
+
+
+def test_s3_keys_are_not_prefixed_twice() -> None:
+    """Regression: `analytical/analytical/...` made the external tables read nothing."""
+    from marge.publish import S3Writer
+
+    class _FakeS3:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def put_object(self, Bucket: str, Key: str, Body: bytes, ContentType: str) -> None:
+            self.calls.append((Bucket, Key))
+
+    fake = _FakeS3()
+    writer = S3Writer("marge-dev-curated", client=fake)
+    report = publish(_loaded_store(), writer, prefix="analytical")
+    keys = [key for _, key in fake.calls]
+    assert keys, "nothing was written"
+    assert all(not key.startswith("analytical/analytical/") for key in keys)
+    assert any(key == "analytical/marge_client_mois/month=2026-10/part-0.jsonl" for key in keys)
+    # L'URI rendue doit pointer exactement là où le LOCATION Athena regarde.
+    for table in report.tables:
+        for uri in table.uris:
+            assert uri.startswith("s3://marge-dev-curated/analytical/")
