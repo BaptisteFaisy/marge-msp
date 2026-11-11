@@ -137,8 +137,8 @@ marge-msp/
 │   ├── calc/          # margin model (spec §12): inputs, rates, hours, allocation, coverage, margin, effort, renewal, trace, versioning
 │   ├── ingest/        # source Protocol + ticket/billing/invoice loaders, PII stripping
 │   │                  #   (marketplace connectors of EF-SRC-05: post-hackathon (spec §5.2))
-│   ├── store/         # Store Protocol + SQLite implementation (`src/marge/store/sqlite_store.py`);
-│   │                  #   the DynamoDB backend is a remaining gap — see docs/acceptance/MATRIX.md §9
+│   ├── store/         # Store Protocol: SQLite (`sqlite_store.py`), DynamoDB (`dynamo_store.py`)
+│   │                  #   and pure Athena SQL generation (`athena.py`)
 │   ├── match/         # client identity matching (merged)
 │   ├── contracts/     # Annex B extraction + validation (merged)
 │   ├── classify/      # Annex C classification + decision memory (merged)
