@@ -1,207 +1,17 @@
 """The five analytical datasets loaded into Quick (Annex A).
 
 Each :class:`~marge.quicksight.models.DatasetSpec` carries the grain, the
-columns, the key, and the Athena query that fills it. The queries read the
-model-common tables described in spec 15, produced by the nightly pipeline.
-
-The SQL lives here because ``marge.store.athena`` does not exist yet; when it
-lands, the queries below must be replaced by its, keeping the same contract:
-one dataset, one grain, one query.
+columns, the key, and the Athena query that fills it. The SQL lives in
+:mod:`marge.store.athena` so there is a single source of truth.
 """
 
 from __future__ import annotations
 
+from marge.store.athena import dataset_query
+
 from .models import DatasetSpec, FieldSpec
 
 __all__ = ["DATASETS", "DATASET_NAMES", "dataset_by_name"]
-
-_MARGES_CLIENT_MOIS_SQL = """
-WITH marge AS (
-    SELECT
-        client_id,
-        month,
-        revenue_subscription,
-        revenue_aws_resale,
-        revenue_extra_hours_billed,
-        revenue_projects,
-        cost_labour,
-        cost_tooling,
-        cost_msp_aws,
-        cost_penalties,
-        margin,
-        margin_rate,
-        coverage,
-        is_estimate,
-        state,
-        calc_version
-    FROM marge.marge_mensuelle
-)
-SELECT
-    m.client_id,
-    c.client_name,
-    c.account_manager_id,
-    m.month,
-    m.revenue_subscription,
-    m.revenue_aws_resale,
-    m.revenue_extra_hours_billed,
-    m.revenue_projects,
-    m.revenue_subscription + m.revenue_aws_resale
-        + m.revenue_extra_hours_billed + m.revenue_projects AS revenue_total,
-    m.cost_labour,
-    m.cost_tooling,
-    m.cost_msp_aws,
-    m.cost_penalties,
-    m.cost_labour + m.cost_tooling + m.cost_msp_aws + m.cost_penalties AS cost_total,
-    m.margin,
-    m.margin_rate,
-    m.coverage,
-    m.is_estimate,
-    m.state,
-    m.calc_version
-FROM marge m
-JOIN marge.clients c ON c.client_id = m.client_id
-""".strip()
-
-_EFFORT_SQL = """
-WITH classed AS (
-    SELECT
-        i.client_id,
-        i.occurred_on,
-        i.category,
-        i.level,
-        i.ticket_id,
-        i.hours_spent,
-        COALESCE(cl.work_class, 'IN_SCOPE') AS work_class
-    FROM marge.interventions i
-    LEFT JOIN marge.classements cl ON cl.intervention_id = i.intervention_id
-),
-rated AS (
-    SELECT
-        k.*,
-        r.hourly_cost,
-        k.hours_spent * r.hourly_cost AS labour_cost
-    FROM classed k
-    JOIN marge.couts_horaires r
-      ON r.level = k.level
-     AND r.effective_from <= LAST_DAY(CAST(k.occurred_on AS DATE))
-     AND r.effective_from = (
-            SELECT MAX(r2.effective_from)
-            FROM marge.couts_horaires r2
-            WHERE r2.level = k.level
-              AND r2.effective_from <= LAST_DAY(CAST(k.occurred_on AS DATE))
-        )
-)
-SELECT
-    rated.client_id,
-    clients.account_manager_id,
-    DATE_FORMAT(CAST(rated.occurred_on AS DATE), 'yyyy-MM') AS month,
-    rated.category,
-    rated.level,
-    SUM(rated.hours_spent) AS hours_spent,
-    SUM(rated.labour_cost) AS labour_cost,
-    COUNT(DISTINCT rated.ticket_id) AS ticket_count,
-    ANY_VALUE(rated.work_class) AS work_class,
-    ANY_VALUE(rated.hourly_cost) AS hourly_cost
-FROM rated
-JOIN marge.clients clients ON clients.client_id = rated.client_id
-GROUP BY
-    rated.client_id,
-    clients.account_manager_id,
-    DATE_FORMAT(CAST(rated.occurred_on AS DATE), 'yyyy-MM'),
-    rated.category,
-    rated.level
-""".strip()
-
-_HEURES_NON_FACTUREES_SQL = """
-SELECT
-    h.client_id,
-    c.account_manager_id,
-    h.month,
-    h.out_of_scope_validated_hours,
-    h.over_quota_hours,
-    h.billed_extra_hours,
-    h.out_of_scope_validated_hours + h.over_quota_hours - h.billed_extra_hours AS unbilled_hours,
-    h.contract_hour_rate,
-    (h.out_of_scope_validated_hours + h.over_quota_hours - h.billed_extra_hours)
-        * h.contract_hour_rate AS unbilled_value,
-    h.state
-FROM marge.heures_non_facturees h
-JOIN marge.clients c ON c.client_id = h.client_id
-""".strip()
-
-_CONTRATS_ACTIFS_SQL = """
-WITH marge_6m AS (
-    SELECT
-        client_id,
-        SUM(revenue_subscription + revenue_aws_resale
-            + revenue_extra_hours_billed + revenue_projects) AS revenue_6m,
-        SUM(cost_labour + cost_tooling + cost_msp_aws + cost_penalties) AS cost_6m
-    FROM marge.marge_mensuelle
-    WHERE month >= date_format(current_date, 'yyyy-MM')
-              - INTERVAL '5' MONTH
-    GROUP BY client_id
-),
-trend AS (
-    SELECT
-        client_id,
-        CASE
-            WHEN margin_rate - LAG(margin_rate) OVER (
-                     PARTITION BY client_id ORDER BY month) >  0.005 THEN 'UP'
-            WHEN margin_rate - LAG(margin_rate) OVER (
-                     PARTITION BY client_id ORDER BY month) < -0.005 THEN 'DOWN'
-            ELSE 'FLAT'
-        END AS trend
-    FROM marge.marge_mensuelle
-)
-SELECT
-    ct.contract_id,
-    ct.version,
-    ct.client_id,
-    c.client_name,
-    c.account_manager_id,
-    ct.monthly_subscription,
-    ct.included_hours_per_month,
-    ct.extra_hour_rate,
-    ct.end_date,
-    DATE_DIFF('day', current_date, ct.end_date) AS days_to_renewal,
-    CASE WHEN m.revenue_6m > 0
-         THEN (m.revenue_6m - m.cost_6m) / m.revenue_6m
-         ELSE 0 END AS margin_rate_six_months,
-    COALESCE(t.trend, 'FLAT') AS trend,
-    ct.status
-FROM marge.contrats ct
-JOIN marge.clients c ON c.client_id = ct.client_id
-LEFT JOIN marge_6m m ON m.client_id = ct.client_id
-LEFT JOIN trend t ON t.client_id = ct.client_id
-WHERE ct.status IN ('VALIDATED', 'AMENDED')
-  AND ct.end_date IS NOT NULL
-  AND DATE_DIFF('day', current_date, ct.end_date) BETWEEN 0 AND 90
-""".strip()
-
-_INTERVENTIONS_A_VALIDER_SQL = """
-SELECT
-    i.intervention_id,
-    i.ticket_id,
-    i.client_id,
-    c.client_name,
-    c.account_manager_id,
-    i.occurred_on,
-    i.category,
-    i.level,
-    i.hours_spent,
-    cl.work_class AS proposed_class,
-    cl.confidence,
-    cl.cited_clause,
-    cl.reason,
-    cl.needs_human_validation,
-    cl.status AS decision_status
-FROM marge.classements cl
-JOIN marge.interventions i ON i.intervention_id = cl.intervention_id
-JOIN marge.clients c ON c.client_id = i.client_id
-WHERE cl.status = 'PENDING'
-  AND cl.work_class IN ('OUT_OF_SCOPE', 'UNCERTAIN')
-""".strip()
-
 
 _MARGES_FIELDS = (
     FieldSpec("client_id", "string", "Common client identifier", sensitive=False),
@@ -292,7 +102,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
         grain="one client, one month",
         fields=_MARGES_FIELDS,
         keys=("client_id", "month"),
-        sql=_MARGES_CLIENT_MOIS_SQL,
+        sql=dataset_query("marge_client_mois"),
         description="Monthly margin of each client: revenue by post, cost by nature, margin, rate, coverage.",
         requirement="EF-TDB-01, EF-CAL-01, EF-ADM-02",
     ),
@@ -301,7 +111,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
         grain="one client, one month, one work category, one level",
         fields=_EFFORT_FIELDS,
         keys=("client_id", "month", "category", "level"),
-        sql=_EFFORT_SQL,
+        sql=dataset_query("effort_client_mois_categorie"),
         description="Effort and labour cost split by category and by level, with the class of the work.",
         requirement="EF-TDB-05, EF-CAL-05",
     ),
@@ -310,7 +120,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
         grain="one client, one month",
         fields=_HEURES_NON_FACTUREES_FIELDS,
         keys=("client_id", "month"),
-        sql=_HEURES_NON_FACTUREES_SQL,
+        sql=dataset_query("heures_non_facturees"),
         description="Unbilled hours per client and month, with their value and their state.",
         requirement="EF-TDB-03, EF-CAL-02",
     ),
@@ -319,7 +129,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
         grain="one contract",
         fields=_CONTRATS_ACTIFS_FIELDS,
         keys=("contract_id", "version"),
-        sql=_CONTRATS_ACTIFS_SQL,
+        sql=dataset_query("contrats_actifs"),
         description="Contracts renewing within 90 days, with the six-month margin rate and the trend.",
         requirement="EF-TDB-04, EF-CTR-05",
     ),
@@ -328,7 +138,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
         grain="one intervention",
         fields=_INTERVENTIONS_A_VALIDER_FIELDS,
         keys=("intervention_id",),
-        sql=_INTERVENTIONS_A_VALIDER_SQL,
+        sql=dataset_query("interventions_a_valider"),
         description="Classifications awaiting a human decision, with the cited contract clause.",
         requirement="EF-CLS-03, EF-TDB-03",
     ),
