@@ -1,3 +1,3 @@
 # Conflit de sonde
 
-Ligne contested: version A (canal principal).
+Ligne contested: version B (canal de secours), version A (canal principal).
