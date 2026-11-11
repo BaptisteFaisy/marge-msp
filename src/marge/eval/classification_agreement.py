@@ -34,8 +34,12 @@ class Label:
         )
 
 
-def _violations(predicted: dict[str, Classification], labels: Sequence[Label]) -> list[Label]:
-    """Labelled interventions that are clearly included yet called out of scope."""
+def r6_violations(predicted: dict[str, Classification], labels: Sequence[Label]) -> list[Label]:
+    """Labelled interventions that are clearly included yet called out of scope.
+
+    Public because the model comparison of idea 26 reports the *count* of
+    those violations, not only the fact of them.
+    """
     return [
         label
         for label in labels
@@ -64,7 +68,7 @@ def classification_agreement(predicted: Sequence[Classification], labels: Sequen
     """Agreement between the classifier output and the labelled set (R5/R6)."""
     by_id = {item.intervention_id: item for item in predicted}
     hits, tally = _class_tally(by_id, labels)
-    violations = _violations(by_id, labels)
+    violations = r6_violations(by_id, labels)
     detail = [
         f"{len(labels)} labelled intervention(s), {len(predicted)} classification(s)",
         "per class: "
