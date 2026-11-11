@@ -6,23 +6,25 @@ Step-by-step instructions for judges and evaluators to run, inspect and verify M
 
 ## 1. Quick Local Walk-Through (Zero AWS Credentials Needed)
 
-The repository is designed to run 100 % offline with SQLite and pre-recorded fakes. The full sequence takes under 3 minutes once the pipeline modules are merged.
+The repository is designed to run 100 % offline with SQLite and pre-recorded fakes. The full walk-through below — `generate` → `demo --auto-validate --review` → `eval` — was measured end to end at **1 min 54 s** on a fresh dataset.
 
-### 1.0 CLI availability in this branch — read this first
+### 1.0 CLI commands — all merged into `main`
 
-The CLI (`src/marge/cli.py`) discovers commands from `src/marge/commands/`; each module registers its own. As of this documentation branch:
+The CLI (`src/marge/cli.py`) discovers commands from `src/marge/commands/`; each module registers its own. Every command below runs today in a fresh clone (`make smoke`, `make test` and `make demo` need nothing else):
 
-| Command | Available now | Arrives with |
-|---|---|---|
-| `smoke` | **yes** — recomputes the Annex D golden case (4 620 € / 3 725 € / 895 € / 19.4 % / 9 h = 990 €) | — |
-| `version` | **yes** | — |
-| `generate` | no | data generator (lot6) |
-| `load`, `match`, `contracts`, `classify` | no | ingest / match / contracts / classify (lot1, lot2) |
-| `compute`, `review`, `mcp`, `portal` | no | pipeline, review, mcp, api (lot3, lot4) |
-| `assets`, `quicksight deploy` | no | quicksight (lot5) |
-| `demo` (the `make demo` target) | no — it chains all of the above | all of the above |
-
-So today, in a fresh clone, the two commands that run are `make smoke` and `make test`. The rest of this section is the **target walk-through** — the exact sequence the merged repository executes; commands are listed in dependency order so the demo can be replayed step by step as the modules land.
+| Command | What it does |
+|---|---|
+| `smoke` | Recomputes the Annex D golden case offline (4 620 € / 3 725 € / 895 € / 19.4 % / 9 h = 990 €) |
+| `version` | Prints the package version |
+| `generate` | Writes the synthetic dataset — 12 clients, 6 months (2026-05 → 2026-10), 3 922 interventions, 13 contract versions, 150 labelled interventions, 20 reference questions |
+| `demo` | Full offline pipeline: load → match → contracts → classify → compute → margin table → MCP tools. `--auto-validate` simulates the human gates, `--review` also prints the Annex E review, `--db` keeps the SQLite file |
+| `eval` | Accuracy harnesses R2/R3/R5/R11 on a generated dataset |
+| `nightly` | Nightly cadence: classify the new work, recompute the margins, refresh the analytics tables |
+| `weekly` | Weekly digest: the out-of-scope work waiting for a decision, per account manager |
+| `monthly` | Monthly review text (Annex E) for one month |
+| `assets` | Writes the Quick asset bundle, or verifies the committed one (`--check`) |
+| `mcp` | MCP server over stdin/stdout (JSON-RPC 2.0, one message per line); `--self-test` prints the three tools |
+| `serve` | Portal API (FastAPI, spec ch.16) over uvicorn — requires the `api` extra |
 
 ### 1.1 Requirements
 - Python 3.12+
@@ -34,7 +36,7 @@ git clone git@github.com:BaptisteFaisy/marge-msp.git
 cd marge-msp
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e ".[dev,api]"
 ```
 
 ### 1.2 Step-by-Step Command Walk-Through
@@ -43,47 +45,53 @@ pip install -e .
 # 0. Smoke check (verifies the Annex D golden numbers offline)
 python3 -m marge.cli smoke
 
-# 1. Generate the fake MSP data (12 clients, 6 months, 12 PDF contracts, seeded cases)
-python3 -m marge.cli generate --seed 20261111
+# 1. Generate the synthetic MSP dataset (12 clients, 6 months, seeded situations)
+python3 -m marge.cli generate --out data/generated
 
-# 2. Ingest raw data into the local SQLite store (PII stripped on the way in)
-python3 -m marge.cli load --source data/generated/
+# 2. Full offline pipeline: load → match → contracts → classify → compute → margins → MCP tools
+#    --auto-validate simulates the three human gates, --review prints the Annex E review
+python3 -m marge.cli demo --data data/generated --db /tmp/marge.sqlite3 --auto-validate --review
 
-# 3. Propose client matching across ITSM, billing and contracts
-python3 -m marge.cli match --propose
+# 3. Accuracy harnesses (R2 matching, R3 clauses, R5 classification, R11 agent)
+python3 -m marge.cli eval --data data/generated
 
-# 4. Extract contract clauses and review them
-python3 -m marge.cli contracts --extract data/generated/contracts/
+# 4. The three cadences against the same SQLite database
+python3 -m marge.cli nightly --db /tmp/marge.sqlite3 --month 2026-10
+python3 -m marge.cli weekly --db /tmp/marge.sqlite3
+python3 -m marge.cli monthly --db /tmp/marge.sqlite3 --month 2026-10
 
-# 5. Classify interventions against validated contract scopes
-python3 -m marge.cli classify --month 2026-10
-
-# 6. Compute margin per client per month
-python3 -m marge.cli compute --month 2026-10
-
-# 7. Render the monthly executive review (Annex E)
-python3 -m marge.cli review --month 2026-10
-
-# 8. Run the MCP server locally (inspect the three tools)
-python3 -m marge.cli mcp --inspect
+# 5. Quick asset bundle (verify the committed one) and the MCP tools
+python3 -m marge.cli assets --check
+python3 -m marge.cli mcp --self-test
 ```
 
-Or run everything in one shot:
+Or run the pipeline in one shot:
 ```bash
-make demo
+make demo   # = python3 -m marge.cli demo, without --auto-validate: margins stay
+            # INCOMPLETE until the human gates are passed — that is exactly R4
 ```
+
+Reference scores printed by `eval` on the seeded dataset: clause accuracy (R3) **100.00 %** vs target 0.90, classification agreement (R5/R6) **100.00 %** vs target 0.90, client match accuracy (R2) **97.30 %** vs target 0.80, agent accuracy (R11) **100.00 %** vs target 0.90.
 
 ### 1.3 Open the Validation Portal (Local)
 
+Two processes — the API and the static front-end (no build step):
+
 ```bash
-python3 -m marge.cli portal --port 8080
-# Open http://localhost:8080 in your browser
+# 1. Portal API (dev auth mode trusts the X-Actor-* headers)
+python3 -m marge.cli serve --db /tmp/marge.sqlite3 --port 8000
+
+# 2. Portal front-end: any static file server
+python3 -m http.server 8080 --directory portal
+# Open http://localhost:8080 — the API field in the header points at http://localhost:8000
 ```
 
 The local portal exposes the three human gates:
 1. **Client matching:** approve proposed cross-source aliases.
 2. **Contracts:** review extracted Annex B clauses side-by-side with contract text; click *Validate*.
 3. **Classifications:** approve/reject out-of-scope interventions for account managers.
+
+Dev-mode actor identities (`exec-01`, `ops-01`, `am-01`, `controller-01`, `admin-01`) and what each role sees are documented in `portal/README.md`.
 
 ---
 
@@ -96,10 +104,13 @@ For online evaluation of the hosted system:
 
 ### Demo Credentials (EF-ADM-03)
 
-> Login names below are the planned demo identities; the shared password is
-> provisioned at deployment and pasted into the Devpost test instructions.
+> Login names below are the demo identities provisioned at deployment by the
+> portal stack (`infra/cdk/portal.py` — Cognito user pool and the five role
+> groups, see `docs/RUNBOOK.md` §2); the shared password is provisioned at
+> deployment and pasted into the Devpost test instructions.
 > Placeholder shown here: `Marge-Hackathon-2026!` — rotated after judging ends
-> (22 January 2027).
+> (22 January 2027). For the local portal in dev auth mode, the header
+> identities are listed in `portal/README.md`.
 
 | Role | Portal Login | Quick Login | What they can see / do |
 |---|---|---|---|
@@ -121,7 +132,7 @@ For online evaluation of the hosted system:
 2. **Client Sheet (EF-TDB-02):** pick a client (e.g. Durand Industries); drill into revenue breakdown, cost by nature, hours by seniority level.
 3. **Unbilled Hours (EF-TDB-03):** out-of-scope work and allowance overruns in hours and euro value, with their validation status.
 4. **Renewals within 90 Days (EF-TDB-04):** identify the profitable client renewing in 60 days with a dropping margin.
-5. **Effort Breakdown (EF-TDB-05):** costliest work categories per client.
+5. **Effort Breakdown (EF-TDB-05):** costiest work categories per client.
 
 Check **Row-Level Security (EF-TDB-06)**: sign in as `marge-am1` — only AM 1's clients appear; hourly rate cards are hidden.
 
@@ -153,22 +164,22 @@ Open the Quick chat agent (*"Profitability Analyst"*) and try these seeded promp
 
 ## 4. Acceptance Checklist — R1 to R15 (Spec §23)
 
-> **Reading this checklist.** The *How to verify* column gives the definitive procedure for the merged repository. Commands marked **✱ planned** depend on a module that is not merged into `main` yet (see §1.0); the two rows that run today — R8 (golden decomposition) and the Annex D part of R7 — are the ones a reader can execute in this branch right now.
+> **Reading this checklist.** Every command and test below runs today, offline, in a fresh clone (the `make` targets set `PYTHONPATH=src`; for bare pytest use `PYTHONPATH=src:. pytest -q`). Rows that need the deployed AWS account — the live Quick chat agent, the scheduled Quick flow, the Quick row-level rule set — are marked *manual — see `docs/RUNBOOK.md` §4*: those elements cannot be created by an API. The authoritative requirement-by-requirement mapping is [acceptance/MATRIX.md](acceptance/MATRIX.md).
 
 | Id | Scenario | Expected Result | How to verify |
 |---|---|---|---|
-| **R1** | Ingestion of the three sources | Data coverage > 95 % | ✱ planned — `python3 -m marge.cli eval --target coverage` (or read the coverage KPI on the overview dashboard) |
-| **R2** | Client identity matching | > 80 % proposed correctly; 100 % after validation | ✱ planned — `python3 -m marge.cli eval --target match` |
-| **R3** | Reading of the 12 contracts | > 90 % fields correct; source passage displayed | ✱ planned — `python3 -m marge.cli eval --target contracts` |
-| **R4** | Unvalidated contract | Client margin flagged as `INCOMPLETE` | ✱ planned — `python3 -m marge.cli compute --month 2026-10`, then inspect the client whose contract is still `EXTRACTED` |
-| **R5** | 150 labelled interventions | > 90 % classification agreement | ✱ planned — `python3 -m marge.cli eval --target classify` |
-| **R6** | Clearly included intervention | **Never** classified as `OUT_OF_SCOPE` | ✱ planned — `pytest tests/unit/classify -k clearly_included` |
-| **R7** | Out-of-scope hours validation | Unbilled hours and value update instantly | ✅ today: `make smoke` asserts 9 h → 990 €; ✱ planned: approve an intervention in the portal and watch the total move by exactly its duration |
-| **R8** | Client margin decomposition | Decomposes to source lines; matches Annex D golden numbers | ✅ `python3 -m pytest tests/unit/calc/test_golden_annex_d.py -q` |
-| **R9** | Hourly rate change | Past months unchanged; new version dated | ✱ planned — `pytest tests/unit/calc -k rate_change` |
-| **R10** | Account Manager visibility | Sees only their clients; cannot see hourly costs | ✱ planned — sign in to the portal or Quick as `marge-am1`, verify the RLS filter and the hidden rate columns |
-| **R11** | 20 reference questions to agent | > 90 % correct answers | ✱ planned — `python3 -m marge.cli eval --target agent` |
-| **R12** | Contract clause question | Response cites the exact clause | Ask the agent about DB engine upgrades on client Martin; verify the quoted clause (live demo only) |
-| **R13** | Renegotiation task creation | Task created in ITSM tool with dossier attached | Ask the agent to create the task; check the ITSM mock / API response (live demo only) |
-| **R14** | Monthly review | Received; numbers identical to dashboards | ✱ planned — compare `marge.cli review --month 2026-10` output with the overview dashboard figures |
-| **R15** | Clean-account installation | Succeeds following the README | ✅ today: fresh clone → `make smoke` → `make test`; ✱ planned: the full `make demo` |
+| **R1** | Ingestion of the three sources | Data coverage > 95 % | `python3 -m marge.cli demo --data data/generated --auto-validate` prints the per-month coverage KPI (97.01 – 99.51 % on the seeded dataset); `python3 -m pytest tests/unit/ingest/test_ingest.py tests/integration/test_seeded_situations.py -q` |
+| **R2** | Client identity matching | > 80 % proposed correctly; 100 % after validation | `python3 -m marge.cli eval --data data/generated` → `client match accuracy (R2) 97.30 % (target 0.80)`; `python3 -m pytest tests/unit/eval/test_match_accuracy.py tests/unit/match/test_matching.py -q` |
+| **R3** | Reading of the 12 contracts | > 90 % fields correct; source passage displayed | `python3 -m marge.cli eval --data data/generated` → `clause accuracy (R3) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_clause_accuracy.py tests/unit/contracts/test_extraction.py -q` |
+| **R4** | Unvalidated contract | Client margin flagged as `INCOMPLETE` | `python3 -m marge.cli demo --data data/generated` (no `--auto-validate`) → the client whose contract is still `EXTRACTED` shows state `INCOMPLETE` in the margin table; `python3 -m pytest tests/integration/test_seeded_situations.py -k not_validated -q` |
+| **R5** | 150 labelled interventions | > 90 % classification agreement | `python3 -m marge.cli eval --data data/generated` → `classification agreement (R5/R6) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_classification_agreement.py -q` |
+| **R6** | Clearly included intervention | **Never** classified as `OUT_OF_SCOPE` | `python3 -m pytest tests/unit/classify/test_classification.py -k doubtful -q`; the agreement harness itself fails on any R6 violation (`python3 -m pytest tests/unit/eval/test_classification_agreement.py -q`) |
+| **R7** | Out-of-scope hours validation | Unbilled hours and value update instantly | `python3 -m marge.cli smoke` asserts 9 h → 990 €; `python3 -m pytest tests/unit/api/test_routes_classifications.py -k approved_out_of_scope -q`; live: approve an intervention in the local portal (§1.3) and watch the total move by exactly its duration |
+| **R8** | Client margin decomposition | Decomposes to source lines; matches Annex D golden numbers | `python3 -m pytest tests/unit/calc/test_golden_annex_d.py -q` |
+| **R9** | Hourly rate change | Past months unchanged; new version dated | `python3 -m pytest tests/integration/test_seeded_situations.py -k rate -q`; effective-dated immutable rates in `src/marge/calc/versioning.py`, admin route: `python3 -m pytest tests/unit/api/test_routes_admin.py -q` |
+| **R10** | Account Manager visibility | Sees only their clients; cannot see hourly costs | `python3 -m pytest tests/unit/api/test_rls.py tests/unit/quicksight/test_rls.py -q`; live: use the local portal as `am-01` (§1.3). The Quick rule set is manual — see `docs/RUNBOOK.md` §4 |
+| **R11** | 20 reference questions to agent | > 90 % correct answers | `python3 -m marge.cli eval --data data/generated` → `agent accuracy (R11) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_agent_accuracy.py -q`. The live Quick chat agent is manual — see `docs/RUNBOOK.md` §4 |
+| **R12** | Contract clause question | Response cites the exact clause | `python3 -m pytest tests/unit/quicksight/test_agent.py tests/unit/eval/test_clause_accuracy.py -q`; the live answer on the Quick agent (contracts space) is manual — see `docs/RUNBOOK.md` §4 |
+| **R13** | Renegotiation task creation | Task created in ITSM tool with dossier attached | `python3 -m marge.cli mcp --self-test` lists `create_renegotiation_task`; `python3 -m pytest tests/unit/mcp/test_mcp.py -q` (against the ITSM double). The live ITSM call from the Quick agent is manual — see `docs/RUNBOOK.md` §4 |
+| **R14** | Monthly review | Received; numbers identical to dashboards | `python3 -m marge.cli monthly --db /tmp/marge.sqlite3 --month 2026-10` (or `demo --auto-validate --review`); `python3 -m pytest tests/unit/review/test_review.py tests/unit/pipeline/test_pipeline.py -q`. Delivery by the Quick flow or SES is manual — see `docs/RUNBOOK.md` §4 |
+| **R15** | Clean-account installation | Succeeds following the README | Fresh clone → `make smoke` → `make test` → `make demo` (all run offline); AWS deployment order in `docs/RUNBOOK.md` §2 |

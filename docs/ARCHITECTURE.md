@@ -135,22 +135,29 @@ marge-msp/
 ├── src/marge/
 │   ├── domain/        # pure dataclasses (frozen): money, periods, parties, work, results, settings, audit
 │   ├── calc/          # margin model (spec §12): inputs, rates, hours, allocation, coverage, margin, effort, renewal, trace, versioning
-│   ├── ingest/        # source Protocol + connectors, PII stripping
-│   ├── store/         # Store Protocol (SQLite / DynamoDB implementations)
-│   ├── match/         # client identity matching (planned — lot2)
-│   ├── contracts/     # Annex B extraction + validation (planned — lot2)
-│   ├── classify/      # Annex C classification + decision memory (planned — lot2)
-│   ├── api/           # FastAPI portal API, spec §16 (planned — lot3)
-│   ├── mcp/           # MCP server, three tools (planned — lot4)
-│   ├── review/        # monthly review, Annex E (planned — lot4)
-│   ├── quicksight/    # datasets, topic, dashboards, RLS, flows, asset bundle (planned — lot5)
-│   ├── pipeline/      # nightly/weekly/monthly orchestration (planned — lot5)
-│   ├── eval/          # accuracy harnesses R2/R3/R5/R11 (planned — lot6)
-│   ├── cli.py         # single entry point: generate, load, classify, compute, smoke…
+│   ├── ingest/        # source Protocol + ticket/billing/invoice loaders, PII stripping
+│   │                  #   (marketplace connectors of EF-SRC-05: post-hackathon (spec §5.2))
+│   ├── store/         # Store Protocol + SQLite implementation (`src/marge/store/sqlite_store.py`);
+│   │                  #   the DynamoDB backend is a remaining gap — see docs/acceptance/MATRIX.md §9
+│   ├── match/         # client identity matching (merged)
+│   ├── contracts/     # Annex B extraction + validation (merged)
+│   ├── classify/      # Annex C classification + decision memory (merged)
+│   ├── api/           # FastAPI portal API, spec §16 (merged)
+│   ├── mcp/           # MCP server, three tools (merged)
+│   ├── review/        # monthly review, Annex E (merged)
+│   ├── quicksight/    # datasets, topic, dashboards, RLS, flows, asset bundle (merged)
+│   ├── pipeline/      # nightly/weekly/monthly orchestration (merged)
+│   ├── eval/          # accuracy harnesses R2/R3/R5/R11 (merged)
+│   ├── cli.py         # single entry point: smoke, generate, demo, eval, nightly, weekly,
+│   │                  #   monthly, assets, mcp, serve, version
 │   └── commands/      # CLI command implementations
-├── data/generator/    # fake MSP: 12 clients, 6 months, seeded situations (lot6)
-├── portal/            # static validation portal, no build step (lot3)
-├── infra/cdk/         # CDK app + stacks (lot5)
+├── data/generator/    # synthetic MSP: 12 clients, 6 months (2026-05 → 2026-10), 3 922 interventions,
+│                      #   13 contract versions, 150 labelled interventions, 20 reference questions
+├── data/generated/    # dataset written by `python3 -m marge.cli generate`
+├── portal/            # static validation portal, no build step (see `portal/README.md`)
+├── infra/cdk/         # CDK app + stacks
+├── infra/quicksight-assets/  # committed Quick asset bundle, verified by `python3 -m marge.cli assets --check`
+├── scripts/           # repository guards (`scripts/check_limits.py`)
 ├── tests/             # offline deterministic tests, tests/fakes/ shared doubles
 └── docs/              # this documentation set
 ```
