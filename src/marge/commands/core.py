@@ -62,4 +62,11 @@ def version(_: argparse.Namespace) -> int:
     return 0
 
 
+def _no_flags(parser: argparse.ArgumentParser) -> None:
+    """These two commands take no option."""
+
+
+smoke.configure = _no_flags  # type: ignore[attr-defined]
+version.configure = _no_flags  # type: ignore[attr-defined]
+
 COMMANDS = {"smoke": smoke, "version": version}
