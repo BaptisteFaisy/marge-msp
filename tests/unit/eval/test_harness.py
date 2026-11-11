@@ -1,0 +1,80 @@
+"""The harness runs the four measures and reports them (spec 13.3)."""
+
+from __future__ import annotations
+
+import json
+from decimal import Decimal
+
+import pytest
+
+from generator.build import generate
+from marge.eval.harness import HarnessReport, run_all
+from marge.eval.score import Score
+
+
+@pytest.fixture(scope="module")
+def harness(tmp_path_factory) -> HarnessReport:
+    out = tmp_path_factory.mktemp("harness")
+    generate(out)
+    return run_all(out)
+
+
+def test_harness_runs_the_four_measures(harness):
+    assert set(harness.scores) == {
+        "clause accuracy (R3)",
+        "classification agreement (R5/R6)",
+        "client match accuracy (R2)",
+        "agent accuracy (R11)",
+    }
+
+
+def test_harness_meets_every_target(harness):
+    missed = {name: score.value for name, score in harness.scores.items() if not score.passed}
+    assert not missed, f"targets missed: {missed}"
+    assert harness.passed is True
+
+
+@pytest.mark.parametrize(
+    ("name", "target"),
+    [
+        ("clause accuracy (R3)", "0.90"),
+        ("classification agreement (R5/R6)", "0.90"),
+        ("client match accuracy (R2)", "0.80"),
+        ("agent accuracy (R11)", "0.90"),
+    ],
+)
+def test_harness_uses_the_target_of_the_cahier_des_charges(harness, name, target):
+    assert harness.scores[name].target == Decimal(target)
+
+
+def test_harness_stats_describe_the_dataset(harness):
+    assert harness.stats["clients"] == 12
+    assert harness.stats["months"] == 6
+    assert harness.stats["contract_versions"] == 13
+    assert harness.stats["labelled_interventions"] == 150
+    assert harness.stats["reference_questions"] == 20
+
+
+def test_harness_report_is_printable(harness):
+    text = harness.render()
+    assert "accuracy harness" in text
+    assert "ALL TARGETS MET" in text
+    for name in harness.scores:
+        assert name in text
+
+
+def test_harness_report_serialises_to_json(harness):
+    payload = json.loads(harness.to_json())
+    assert payload["passed"] is True
+    assert set(payload["scores"]) == set(harness.scores)
+    assert payload["scores"]["agent accuracy (R11)"]["percent"] == "100.00"
+    assert payload["stats"]["interventions"] > 3000
+
+
+def test_harness_reports_a_missed_target_as_a_failure():
+    report = HarnessReport(
+        scores={"x": Score(value=Decimal("0.5"), target=Decimal("0.9"), passed=False)},
+        stats={},
+    )
+    assert report.passed is False
+    assert "TARGETS MISSED" in report.render()
