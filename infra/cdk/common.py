@@ -103,3 +103,52 @@ class MargeStack(Stack):
     def default_timeout(self) -> Duration:
         """Default timeout of the lambdas of this stack."""
         return Duration.seconds(60)
+
+
+ATHENA_QUERY_ACTIONS = (
+    "athena:StartQueryExecution",
+    "athena:GetQueryExecution",
+    "athena:GetQueryResults",
+    "athena:GetQueryResultsStream",
+    "athena:StopQueryExecution",
+    "athena:BatchGetQueryExecution",
+    "athena:ListQueryExecutions",
+    "athena:GetWorkGroup",
+)
+
+GLUE_READ_ACTIONS = (
+    "glue:GetDatabase",
+    "glue:GetDatabases",
+    "glue:GetTable",
+    "glue:GetTables",
+    "glue:GetPartition",
+    "glue:GetPartitions",
+    "glue:BatchGetPartition",
+)
+
+
+def analytical_query_statements(curated_bucket_name: str = "") -> list[iam.PolicyStatement]:
+    """Least-privilege statements to query the curated zone through Athena.
+
+    Replaces the AWS managed policies ``AmazonQuickSightAthenaAccess`` and
+    ``AmazonQuickSightSpatialAccess``, both retired by AWS (``GetPolicy``
+    returns 404, verified on account 710332178565 on 2026-11-11: the deploy
+    failed with "does not exist or is not attachable"). It also avoids the
+    wildcard actions of ``AmazonAthenaFullAccess`` and
+    ``AWSGlueConsoleFullAccess``, which ENF-SEC-01 forbids.
+    """
+    statements = [
+        iam.PolicyStatement(actions=list(ATHENA_QUERY_ACTIONS), resources=["*"]),
+        iam.PolicyStatement(actions=list(GLUE_READ_ACTIONS), resources=["*"]),
+    ]
+    if curated_bucket_name:
+        statements.append(
+            iam.PolicyStatement(
+                actions=["s3:GetObject", "s3:PutObject", "s3:ListBucket", "s3:GetBucketLocation"],
+                resources=[
+                    f"arn:aws:s3:::{curated_bucket_name}",
+                    f"arn:aws:s3:::{curated_bucket_name}/athena-results/*",
+                ],
+            )
+        )
+    return statements
