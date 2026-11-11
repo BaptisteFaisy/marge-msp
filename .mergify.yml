@@ -1,18 +1,15 @@
-# File de merge Mergify — socle CI self-hosted (R630).
+# File de merge Mergify — Marge (AWS MSP AI Hackathon, Track 1).
 #
-# Le depot demarre sans gate IA ni batterie de tests : les queue_conditions
-# n'exigent donc aucun check inexistant (le socle CI est en dry-run —
-# variable de depot HERMES_LITE_DRY_RUN=1). Le seul check exige est
-# `ci-budget`, livre par le socle : aucune PR ne peut entrer dans la file
-# avec un job declare a plus de 5 minutes. Quand la CI reelle du depot
-# existera, ajouter dans queue_conditions :
-#   - check-success = "<check reel>"
-# Structure copiée du .mergify.yml de BaptisteFaisy/duello (décision
-# user 2026-10-10) : inline labels urgent / priority-low identiques.
+# Conditions de file :
+#   - `ci` (ruff + limites 500/50 + pytest offline + smoke annexe D)
+#   - `ci-budget` (budget 5 min par job, règle user 2026-10-24)
+# La gate hermes-lite reste en dry-run (variable HERMES_LITE_DRY_RUN=1) :
+# Mergify est le seul pilote de merge.
+
 queue_rules:
   - name: default
     queue_conditions:
-      # Budget CI 5 min (règle user 2026-10-24) : le garde-fou du socle.
+      - check-success = ci
       - check-success = ci-budget
       - -conflict
       - -draft
@@ -36,11 +33,7 @@ priority_rules:
     priority: low
 
 merge_queue:
-  # N workers self-hosted (R630, labels marge-msp-worker) ; la speculation
-  # Mergify reste bornee a 4, ajustable.
   max_parallel_checks: 4
 
-# Auto-queue natif (produit Merge Queue) : évite de dépendre du produit
-# « Workflow Automation » (pull_request_rules), constaté désactivé le 24/10.
 merge_protections_settings:
   auto_merge_conditions: true
