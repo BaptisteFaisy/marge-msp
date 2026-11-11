@@ -1,0 +1,52 @@
+"""The exposed route table must match chapter 16 exactly (spec 16)."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from marge.api import AuthMode
+
+EXPECTED = {
+    ("GET", "/v1/matches"),
+    ("POST", "/v1/matches/{match_id}/decision"),
+    ("GET", "/v1/contracts"),
+    ("GET", "/v1/contracts/{contract_id}"),
+    ("PUT", "/v1/contracts/{contract_id}/fields"),
+    ("POST", "/v1/contracts/{contract_id}/validate"),
+    ("GET", "/v1/classifications"),
+    ("POST", "/v1/classifications/{intervention_id}/decision"),
+    ("GET", "/v1/rates"),
+    ("PUT", "/v1/rates"),
+    ("GET", "/v1/allocation-rules"),
+    ("PUT", "/v1/allocation-rules"),
+    ("GET", "/v1/coverage"),
+    ("POST", "/v1/recalculate"),
+}
+
+
+def exposed_routes(client: TestClient) -> set[tuple[str, str]]:
+    """Route table read from the OpenAPI document (version-independent)."""
+    routes: set[tuple[str, str]] = set()
+    for path, operations in client.app.openapi()["paths"].items():
+        if not path.startswith("/v1"):
+            continue
+        for method in operations:
+            routes.add((method.upper(), path))
+    return routes
+
+
+def test_route_table_matches_chapter_16(client: TestClient) -> None:
+    assert exposed_routes(client) == EXPECTED
+
+
+def test_every_route_requires_authentication(client: TestClient) -> None:
+    for method, path in sorted(EXPECTED):
+        concrete = path.replace("{match_id}", "m-001")
+        concrete = concrete.replace("{contract_id}", "ctr-001")
+        concrete = concrete.replace("{intervention_id}", "wl-001")
+        response = client.request(method, concrete, json={})
+        assert response.status_code == 401, f"{method} {concrete} -> {response.status_code}"
+
+
+def test_dev_mode_is_the_default_auth_mode(client: TestClient) -> None:
+    assert client.app.state.auth_mode == AuthMode.DEV
