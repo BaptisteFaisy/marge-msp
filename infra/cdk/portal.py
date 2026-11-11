@@ -8,20 +8,28 @@ from a browser. Every validation keeps its author, its date and its reason
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
-from aws_cdk import CfnOutput, Duration
+from aws_cdk import CfnOutput, Duration, RemovalPolicy
 from aws_cdk import aws_apigateway as apigw
 from aws_cdk import aws_cloudfront as cloudfront
 from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_cognito as cognito
+from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_s3_deployment as s3deploy
 from common import MargeStack, lambda_package, secure_bucket
 
 PORTAL_DIR = str(Path(__file__).resolve().parents[2] / "portal")
+
+# La description de la table vit dans le code applicatif : le stack la lit au
+# lieu d'en entretenir une copie (une seule source de vérité pour pk/sk et GSI).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+from marge.store.dynamo_store import create_table_resources  # noqa: E402
 
 __all__ = ["PortalStack"]
 
@@ -56,6 +64,7 @@ class PortalStack(MargeStack):
         # dans les deux cas ; seul le branchement de l'autorisateur change.
         self.auth_mode = auth_mode
         self.user_pool = self._create_user_pool()
+        self.table = self._create_table()
         self.api_role = self._create_api_role()
         self.api_function = self._create_api_function()
         self.api = self._create_api()
@@ -86,6 +95,42 @@ class PortalStack(MargeStack):
             pool.add_group(f"Group{role.title().replace('_', '')}", group_name=role, description=description)
         return pool
 
+    def _create_table(self) -> dynamodb.Table:
+        """The validation store: one table, three sparse GSIs, on-demand.
+
+        Shape and indexes come from ``marge.store.dynamo_store``, so the CDK and
+        the code that reads and writes the table cannot drift. On-demand billing
+        and no provisioned capacity: nothing runs, nothing is billed while the
+        demo is idle. Encryption at rest with an AWS managed key (ENF-SEC-01)
+        and point-in-time recovery on.
+        """
+        spec = create_table_resources(self.table_name)
+        table = dynamodb.Table(
+            self,
+            "ValidationTable",
+            table_name=self.table_name,
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="sk", type=dynamodb.AttributeType.STRING),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            # Clé gérée par AWS : chiffrement au repos sans clé client à gérer
+            # (ENF-SEC-01).
+            encryption=dynamodb.TableEncryption.AWS_MANAGED,
+            point_in_time_recovery=True,
+            removal_policy=RemovalPolicy.RETAIN,
+        )
+        for index in spec["GlobalSecondaryIndexes"]:
+            table.add_global_secondary_index(
+                index_name=index["IndexName"],
+                partition_key=dynamodb.Attribute(
+                    name=index["KeySchema"][0]["AttributeName"], type=dynamodb.AttributeType.STRING
+                ),
+                sort_key=dynamodb.Attribute(
+                    name=index["KeySchema"][1]["AttributeName"], type=dynamodb.AttributeType.STRING
+                ),
+                projection_type=dynamodb.ProjectionType.ALL,
+            )
+        return table
+
     def _create_api_role(self) -> iam.Role:
         """Role of the API lambda: read and write on the validation table."""
         return self.service_role(
@@ -101,7 +146,7 @@ class PortalStack(MargeStack):
                         "dynamodb:Query",
                         "dynamodb:Scan",
                     ],
-                    resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{self.table_name}"],
+                    resources=[self.table.table_arn, f"{self.table.table_arn}/index/*"],
                 )
             ],
         )
@@ -118,7 +163,7 @@ class PortalStack(MargeStack):
             memory_size=1024,
             role=self.api_role,
             environment={
-                "MARGE_TABLE": self.table_name,
+                "MARGE_TABLE": self.table.table_name,
                 "MARGE_REGION": self.region,
                 "MARGE_AUTH_MODE": "cognito",
                 "MARGE_PORTAL_DIR": "/var/task/portal",
@@ -135,45 +180,18 @@ class PortalStack(MargeStack):
             rest_api_name=f"{self.qualifier}-portal",
             description="Validation portal API of Marge (spec 16).",
             deploy_options=apigw.StageOptions(stage_name="prod", tracing_enabled=True),
+            default_method_options=_default_method_options(self.auth_mode, self.user_pool),
         )
-        # Un autorisateur non rattaché à une méthode fait échouer la synthèse
-        # (« must be attached to a RestApi ») : il n'est créé qu'en mode cognito.
-        authorizer = None
-        if self.auth_mode == "cognito":
-            authorizer = apigw.CognitoUserPoolsAuthorizer(
-                self,
-                "PortalAuthorizer",
-                cognito_user_pools=[self.user_pool],
-                authorizer_name="portal-cognito",
-            )
         integration = apigw.LambdaIntegration(self.api_function)
-        # Les routes du chapitre 16 sont sous /v1 : sans ce préfixe l'URL
-        # publique /prod/v1/contracts répond « Missing Authentication Token ».
-        v1 = api.root.add_resource("v1")
-        resources: dict[str, apigw.Resource] = {}
-        for template, methods in _API_ROUTES:
-            resource = _resource_for(v1, resources, template)
-            for method in methods:
-                self._add_method(resource, method, integration, authorizer)
+        # Une permission `lambda:InvokeFunction` par méthode faisait dépasser la
+        # limite AWS de 20 480 octets sur la policy de ressource de la fonction
+        # (14 routes x ~1,4 Ko). Le motif proxy ANY délégue le routage à
+        # FastAPI : deux permissions suffisent, et la table des routes du
+        # chapitre 16 reste vérifiée par tests/unit/api/test_route_table.py
+        # contre l'OpenAPI de l'application.
+        api.root.add_method("ANY", integration)
+        api.root.add_resource("{proxy+}").add_method("ANY", integration)
         return api
-
-    def _add_method(
-        self,
-        resource: apigw.Resource,
-        method: str,
-        integration: apigw.LambdaIntegration,
-        authorizer: apigw.CognitoUserPoolsAuthorizer | None,
-    ) -> None:
-        """Add one method, with the Cognito authorizer only in cognito mode."""
-        if self.auth_mode == "cognito" and authorizer is not None:
-            resource.add_method(
-                method,
-                integration,
-                authorizer=authorizer,
-                authorization_type=apigw.AuthorizationType.COGNITO,
-            )
-            return
-        resource.add_method(method, integration)
 
     def _create_distribution(self) -> cloudfront.Distribution:
         """Create the CloudFront distribution serving the static portal."""
@@ -251,42 +269,26 @@ class PortalStack(MargeStack):
             value="The portal calls /v1/* on its own origin: leave the API base field empty.",
         )
         CfnOutput(self, "ApiUrl", value=self.api.url)
+        CfnOutput(self, "ValidationTableName", value=self.table.table_name)
         CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id)
         CfnOutput(
             self, "UserPoolClientId", value=self.user_pool.add_client("portal-client").user_pool_client_id
         )
 
 
-_API_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("matches", ("GET",)),
-    ("matches/{id}/decision", ("POST",)),
-    ("contracts", ("GET",)),
-    ("contracts/{id}", ("GET",)),
-    ("contracts/{id}/fields", ("PUT",)),
-    ("contracts/{id}/validate", ("POST",)),
-    ("classifications", ("GET",)),
-    ("classifications/{id}/decision", ("POST",)),
-    ("rates", ("GET", "PUT")),
-    ("allocation-rules", ("GET", "PUT")),
-    ("coverage", ("GET",)),
-    ("recalculate", ("POST",)),
-)
-"""The routes of spec 16."""
+def _default_method_options(auth_mode: str, pool: Any) -> apigw.MethodOptions:
+    """Method options shared by every route: authorization per mode.
 
-
-def _resource_for(root: apigw.Resource, cache: dict[str, apigw.Resource], template: str) -> apigw.Resource:
-    """Walk the path template and return the deepest API Gateway resource.
-
-    ``cache`` keeps the resources already created, so that two templates
-    sharing a prefix (``matches`` and ``matches/{id}/decision``) reuse the
-    same resource object instead of creating it twice.
+    ``dev`` leaves the API open and the identity comes from the
+    ``X-Actor-Id``/``X-Actor-Role`` headers, which is what the demo accounts of
+    EF-ADM-03 need. ``cognito`` requires a signed token from the user pool.
     """
-    resource = root
-    for part in template.split("/"):
-        if not part:
-            continue
-        path = f"{resource.path}/{part}"
-        if path not in cache:
-            cache[path] = resource.add_resource(part)
-        resource = cache[path]
-    return resource
+    if auth_mode != "cognito":
+        return apigw.MethodOptions()
+    authorizer = apigw.CognitoUserPoolsAuthorizer(
+        pool.stack,
+        "PortalDefaultAuthorizer",
+        cognito_user_pools=[pool],
+        authorizer_name="portal-cognito",
+    )
+    return apigw.MethodOptions(authorization_type=apigw.AuthorizationType.COGNITO, authorizer=authorizer)
