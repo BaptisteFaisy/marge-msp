@@ -10,10 +10,10 @@ DEFAULT_OUT = Path("data/generated")
 
 def generate(args: argparse.Namespace) -> int:
     """Generate the fictional MSP dataset (12 clients, 6 months, 12 contracts)."""
-    from data.generator.build import build_dataset
+    from data.generator.build import generate
 
     out = Path(args.out)
-    manifest = build_dataset(out, seed=args.seed)
+    manifest = generate(out)
     print(f"dataset written to {out}")
     for key, value in sorted(manifest.items()):
         print(f"  {key}: {value}")
@@ -22,7 +22,12 @@ def generate(args: argparse.Namespace) -> int:
 
 def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="output directory")
-    parser.add_argument("--seed", type=int, default=20261111, help="deterministic seed")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=20261111,
+        help="the generator seed is fixed in data/generator/common.py",
+    )
 
 
 COMMANDS = {"generate": generate}
