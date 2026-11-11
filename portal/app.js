@@ -8,8 +8,17 @@
 
 const $ = (id) => document.getElementById(id);
 
+function defaultApiBase() {
+  /* Local: the API runs next to the portal on localhost. Deployed: CloudFront
+   * proxies /v1/* to API Gateway, so the base is the empty string (same
+   * origin) and no CORS header is needed. */
+  const here = window.location.origin || "";
+  if (here.startsWith("http://localhost") || here.startsWith("http://127.")) return here;
+  return "";
+}
+
 function apiBase() {
-  return $("api-base").value.replace(/\/+$/, "");
+  return $("api-base").value.trim().replace(/\/+$/, "");
 }
 
 function authHeaders() {
@@ -303,5 +312,10 @@ document.querySelectorAll(".tab").forEach((tab) => {
 });
 $("actor-role").addEventListener("change", refresh);
 $("actor-id").addEventListener("change", refresh);
+
+/* The API base defaults to the origin that serves the page, unless the URL
+ * carries ?api=… (useful when the portal is opened from a local file). */
+const urlApi = new URLSearchParams(window.location.search).get("api");
+$("api-base").value = urlApi !== null ? urlApi : defaultApiBase();
 
 showScreen("matches");

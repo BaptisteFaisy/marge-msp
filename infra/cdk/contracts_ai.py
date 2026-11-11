@@ -30,7 +30,10 @@ from marge.contracts.schema import blueprint_schema
 
 __all__ = ["ContractsAiStack"]
 
-_MODEL_ID = "amazon.nova-lite-v1:0"
+# Identifiant de *profil d'inférence* régional : Bedrock refuse l'invocation
+# on-demand d'un modèle nu (« Retry your request with the ID or ARN of an
+# inference profile »). Vérifié en réel sur eu-west-1 le 2026-11-11.
+_MODEL_ID = "eu.amazon.nova-lite-v1:0"
 """Small, cheap Bedrock model used for the classification of the work."""
 
 
@@ -106,7 +109,7 @@ class ContractsAiStack(MargeStack):
                 "INFERENCE_PROFILE_ARN": self.inference_profile_arn,
                 # Bedrock n'accepte que `standard` ou `optimized` ici ; le tarif
                 # Flex passe par un profil d'inférence, pas par ce réglage.
-                "INFERENCE_PROFILE": "standard",
+                "MARGE_INFERENCE_PROFILE": "standard",
             },
             description="Classifies the interventions against the scope of the contract.",
         )
@@ -184,6 +187,38 @@ class ContractsAiStack(MargeStack):
                     )
                 ]
             ),
+            standard_output_configuration=self._standard_output(),
+        )
+
+    @staticmethod
+    def _standard_output() -> Any:
+        """Standard output configuration of the data automation project.
+
+        The API rejects a project without it ("Value at
+        'standardOutputConfiguration' ... must not be null"), even when the
+        blueprint supplies every field we need. The document standard extraction
+        is what carries the source passages shown next to each extracted field
+        in the portal (EF-CTR-02): bounding boxes on, key-value and table
+        granularity (DOCUMENT + ELEMENT), Markdown text output.
+        """
+        prop = bedrock.CfnDataAutomationProject
+        return prop.StandardOutputConfigurationProperty(
+            document=prop.DocumentStandardOutputConfigurationProperty(
+                extraction=prop.DocumentStandardExtractionProperty(
+                    granularity=prop.DocumentExtractionGranularityProperty(
+                        # Valeurs acceptées par CloudFormation : DOCUMENT, PAGE,
+                        # ELEMENT, WORD, LINE. DOCUMENT + ELEMENT donne le texte
+                        # et les passages sources sans descendre au mot.
+                        types=["DOCUMENT", "ELEMENT"]
+                    ),
+                    bounding_box=prop.DocumentBoundingBoxProperty(state="ENABLED"),
+                ),
+                generative_field=prop.DocumentStandardGenerativeFieldProperty(state="ENABLED"),
+                output_format=prop.DocumentOutputFormatProperty(
+                    additional_file_format=prop.DocumentOutputAdditionalFileFormatProperty(state="ENABLED"),
+                    text_format=prop.DocumentOutputTextFormatProperty(types=["MARKDOWN"]),
+                ),
+            )
         )
 
     def _outputs(self) -> None:
@@ -191,4 +226,7 @@ class ContractsAiStack(MargeStack):
         CfnOutput(self, "ClassifierFunctionName", value=self.classifier.function_name)
         CfnOutput(self, "ContractExtractorFunctionName", value=self.extractor.function_name)
         CfnOutput(self, "ModelId", value=self.model_id)
-        CfnOutput(self, "InferenceProfile", value="FLEX")
+        # `standard` : Bedrock n'accepte que standard|optimized pour
+        # performanceConfigLatency ; le tarif Flex passerait par un profil
+        # d'inférence dédié, indisponible sur ce compte en eu-west-1.
+        CfnOutput(self, "InferenceProfile", value=self.inference_profile_arn or "standard")
