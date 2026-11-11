@@ -2,8 +2,8 @@
 
 Two engines behind one interface:
 
-* ``BedrockDataAutomation`` — the real one, boto3 imported inside the method,
-  a custom field plan and source spans returned by the service (spec 13.1);
+* ``BedrockDataAutomation`` — the real one, in ``data_automation.py`` (boto3
+  imported inside the methods, spec 13.1);
 * ``LocalTextExtractor`` — deterministic, standard library only, used by the
   tests, the offline demo and the evaluation harness. It reads the two
   layouts a real MSP uses (prose and a table of conditions) and keeps the
@@ -15,7 +15,6 @@ Nothing here decides whether a contract is valid: that is a human step
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 
@@ -225,47 +224,6 @@ class LocalTextExtractor:
         return items
 
 
-class BedrockDataAutomation:
-    """Contract extraction through Bedrock Data Automation (boto3, lazy)."""
-
-    def __init__(self, profile_id: str = "marge-contract-fields-v1", client=None) -> None:
-        self.profile_id = profile_id
-        self._client = client
-
-    def _runtime(self):
-        if self._client is None:
-            import boto3
-
-            self._client = boto3.client("bedrock-data-automation-runtime")
-        return self._client
-
-    def extract(self, document_key: str, content: bytes) -> ContractFields:
-        """Invoke the data automation job and map its output to Annex B."""
-        response = self._runtime().invoke_data_automation_async(
-            inputConfiguration={"s3Uri": document_key},
-            outputConfiguration={"s3Uri": document_key + ".json"},
-            dataAutomationConfiguration={"dataAutomationProjectArn": self.profile_id},
-            dataAutomationProfileArn=self.profile_id,
-        )
-        raw = response.get("outputJson", "{}")
-        payload = json.loads(raw) if isinstance(raw, str) else raw
-        fields = to_contract_fields(payload)
-        fields.spans = self._spans(payload)
-        return fields
-
-    @staticmethod
-    def _spans(payload: dict) -> dict[str, SourceSpan]:
-        spans: dict[str, SourceSpan] = {}
-        for name, value in (payload.get("fieldLocations") or {}).items():
-            spans[name] = SourceSpan(
-                quote=str(value.get("quote", "")),
-                page=value.get("page"),
-                char_start=value.get("start"),
-                char_end=value.get("end"),
-            )
-        return spans
-
-
 def extract_fields(content: bytes, document_key: str = "", extractor=None) -> ContractFields:
     """Extract Annex B fields, falling back to the local engine."""
     engine = extractor or LocalTextExtractor()
@@ -284,7 +242,6 @@ def side_by_side(fields: ContractFields) -> list[ExtractedField]:
 
 
 __all__ = [
-    "BedrockDataAutomation",
     "LocalTextExtractor",
     "extract_fields",
     "parse_date",

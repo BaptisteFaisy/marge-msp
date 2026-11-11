@@ -165,7 +165,11 @@ class PortalStack(MargeStack):
             environment={
                 "MARGE_TABLE": self.table.table_name,
                 "MARGE_REGION": self.region,
-                "MARGE_AUTH_MODE": "cognito",
+                # Suit le mode du stack : `dev` lit l'identité dans les
+                # en-têtes X-Actor-* (comptes de démonstration des juges,
+                # EF-ADM-03), `cognito` exige un jeton signé et refuse toute
+                # requête sans clé de vérification configurée (spec 17).
+                "MARGE_AUTH_MODE": self.auth_mode,
                 "MARGE_PORTAL_DIR": "/var/task/portal",
                 "READ_ONLY_ROLES": "EXECUTIVE,OPERATIONS_DIRECTOR",
             },
