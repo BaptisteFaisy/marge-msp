@@ -5,8 +5,9 @@ Two engines behind one interface:
 * ``BedrockDataAutomation`` — the real one, boto3 imported inside the method,
   a custom field plan and source spans returned by the service (spec 13.1);
 * ``LocalTextExtractor`` — deterministic, standard library only, used by the
-  tests and by the offline demo. It finds each field in the contract text and
-  keeps the passage it came from, so the portal can show value next to quote.
+  tests, the offline demo and the evaluation harness. It reads the two
+  layouts a real MSP uses (prose and a table of conditions) and keeps the
+  passage each value came from, so the portal can show value next to quote.
 
 Nothing here decides whether a contract is valid: that is a human step
 (``marge.contracts.validation``).
@@ -19,68 +20,209 @@ import re
 from dataclasses import dataclass
 
 from ..domain import ContractFields, ExtractedField, SourceSpan
-from .schema import parse_date, parse_list, parse_money, to_contract_fields
+from .schema import parse_date, parse_money, to_contract_fields
 
-MONEY_RE = r"([0-9][0-9 \u00a0.,]*)"
+AMOUNT = r"([0-9][0-9 \u00a0.,]*)"
+
+LABELS: dict[str, str] = {
+    "client": "customer_name",
+    "raison sociale": "customer_name",
+    "date d'effet": "start_date",
+    "date de début": "start_date",
+    "prise d'effet": "start_date",
+    "date de fin": "end_date",
+    "échéance": "end_date",
+    "reconduction": "renewal_terms",
+    "préavis de résiliation": "termination_notice",
+    "préavis": "termination_notice",
+    "abonnement mensuel": "monthly_subscription",
+    "devise": "currency",
+    "heures incluses par mois": "included_hours_per_month",
+    "heures incluses": "included_hours_per_month",
+    "forfait mensuel": "included_hours_per_month",
+    "tarif horaire hors forfait": "extra_hour_rate",
+    "plages de service": "service_hours",
+    "horaires de service": "service_hours",
+    "pénalités": "penalties",
+    "indexation": "indexation_clause",
+    "clause d'indexation": "indexation_clause",
+    "comptes et ressources couverts": "covered_accounts_or_resources",
+    "ressources couvertes": "covered_accounts_or_resources",
+}
+
+NARRATIVE: dict[str, tuple[str, int]] = {
+    "customer_name": (r"ci-après\s*«\s*le Client\s*»\s*,\s*([^,\n]{3,80})", 1),
+    "start_date": (
+        r"(?:prend effet|effet le|entré en vigueur le)\s+(?:le\s+)?([0-9]{1,2}\s+\w+\s+[0-9]{4})",
+        1,
+    ),
+    "end_date": (r"(?:se termine|termine le)\s+(?:le\s+)?([0-9]{1,2}\s+\w+\s+[0-9]{4})", 1),
+    "renewal_terms": (r"renouvelable\s+selon\s+les\s+modalités\s+suivantes\s*:\s*([^.\n]+)", 1),
+    "termination_notice": (r"préavis de résiliation est de\s+([0-9]+\s*(?:mois|jours?|semaines?))", 1),
+    "monthly_subscription": (
+        r"(?:abonnement mensuel (?:est fixé à|de|fixé à)|prix de l'abonnement mensuel est fixé à)\s*"
+        + AMOUNT,
+        1,
+    ),
+    "included_hours_per_month": (
+        r"(?:couvrant|comprend|pour)\s*" + AMOUNT + r"\s*heures?\s*(?:par mois|incluses chaque mois)",
+        1,
+    ),
+    "extra_hour_rate": (
+        r"(?:tarif horaire hors forfait (?:de|s'établit à)|facturée)\s*" + AMOUNT,
+        1,
+    ),
+    "service_hours": (r"Plages? de service\s*:\s*([^\n]+)", 1),
+    "penalties": (r"Pénalités?\s*:\s*([^\n]+)", 1),
+    "indexation_clause": (r"Clause d'indexation\s*:\s*([^\n]+)", 1),
+    "covered_accounts_or_resources": (r"couvre\s+([0-9]+)\s+comptes? ou ressources", 1),
+}
+
+LABEL_LINE = re.compile(r"^\s*(?P<label>[A-Za-zÀ-ÿ][^:\n]{2,45})\s*:\s*(?P<value>.+?)\s*$")
+
+LIST_HEADINGS = {
+    "services_included": ("services inclus", "services couverts"),
+    "exclusions": ("exclusions",),
+}
+
+BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(?P<item>.+)$")
 
 
 @dataclass(slots=True)
 class LocalTextExtractor:
-    """Deterministic extractor: reads the contract prose, keeps the quotes."""
+    """Deterministic extractor: reads the contract, keeps the quotes."""
 
     def extract(self, document_key: str, content: bytes) -> ContractFields:
         text = content.decode("utf-8", errors="replace")
-        payload, spans = self._read(text)
+        pairs, spans = self._pairs(text)
+        payload = self._payload(text, pairs)
         fields = to_contract_fields(payload)
         fields.spans = spans
         return fields
 
-    def _read(self, text: str) -> tuple[dict, dict[str, SourceSpan]]:
-        lines = text.splitlines()
-        payload: dict = {"currency": "EUR"}
+    # ------------------------------------------------------------- parsing
+    def _pairs(self, text: str) -> tuple[dict[str, str], dict[str, SourceSpan]]:
+        pairs: dict[str, str] = {}
         spans: dict[str, SourceSpan] = {}
-
-        def grab(name: str, pattern: str, group: int = 1) -> str | None:
-            for index, line in enumerate(lines):
-                found = re.search(pattern, line, re.IGNORECASE)
-                if found:
-                    value = found.group(group).strip()
-                    payload[name] = value
-                    spans[name] = SourceSpan(quote=line.strip(), page=index // 40 + 1)
-                    return value
-            return None
-
-        grab("customer_name", r"client\s*:\s*(.+)$")
-        grab("start_date", r"(?:date d'effet|prise d'effet)\s*:\s*([^\n]+)")
-        grab("end_date", r"(?:date de fin|échéance)\s*:\s*([^\n]+)")
-        grab("renewal_terms", r"(?:reconduction)\s*:\s*([^\n]+)")
-        grab("termination_notice", r"(?:préavis)\s*:\s*([^\n]+)")
-        grab("monthly_subscription", r"(?:abonnement mensuel)\s*:\s*" + MONEY_RE)
-        grab("included_hours_per_month", r"(?:heures incluses)\s*:\s*([0-9][0-9.,]*)")
-        grab("extra_hour_rate", r"(?:tarif horaire hors forfait)\s*:\s*" + MONEY_RE)
-        grab("service_hours", r"(?:plages? de service|horaires? de service)\s*:\s*([^\n]+)")
-        grab("penalties", r"(?:pénalités?)\s*:\s*([^\n]+)")
-        grab("indexation_clause", r"(?:indexation)\s*:\s*([^\n]+)")
-        grab("covered_accounts_or_resources", r"(?:ressources? couvertes?)\s*:\s*([0-9]+)")
-
-        payload["services_included"] = parse_list(self._block(text, "services inclus", "exclusions"))
-        payload["exclusions"] = parse_list(self._block(text, "exclusions", "engagements"))
-        included = ", ".join(payload["services_included"][:2])
-        excluded = ", ".join(payload["exclusions"][:2])
-        spans["services_included"] = SourceSpan(quote=f"Services inclus: {included}")
-        spans["exclusions"] = SourceSpan(quote=f"Exclusions: {excluded}")
-        payload["sla_commitments"] = [
-            {"subject": line.strip(), "target": "", "penalty_rule": ""}
-            for line in self._block(text, "engagements", "pénalités").splitlines()
-            if line.strip()
-        ]
-        return payload, spans
+        for label, value, quote, page in self._table_rows(text):
+            field = LABELS.get(label.lower().strip())
+            if field and field not in pairs:
+                pairs[field] = value
+                spans[field] = SourceSpan(quote=quote, page=page)
+        for label, value, quote in self._label_lines(text):
+            field = LABELS.get(label.lower().strip())
+            if field and field not in pairs:
+                pairs[field] = value
+                spans[field] = SourceSpan(quote=quote)
+        for field, (pattern, group) in NARRATIVE.items():
+            if field in pairs:
+                continue
+            found = re.search(pattern, text, re.IGNORECASE)
+            if found:
+                pairs[field] = found.group(group).strip()
+                spans[field] = SourceSpan(quote=found.group(0).strip()[:300])
+        if "customer_name" not in pairs:
+            name = self._title_name(text)
+            if name:
+                pairs["customer_name"] = name
+                spans["customer_name"] = SourceSpan(quote=name)
+        return pairs, spans
 
     @staticmethod
-    def _block(text: str, start: str, end: str) -> str:
-        pattern = rf"{start}[^\n]*\n(.*?)(?:\n\s*{end}|$)"
-        found = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        return found.group(1) if found else ""
+    def _table_rows(text: str) -> list[tuple[str, str, str, int]]:
+        rows: list[tuple[str, str, str, int]] = []
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if "|" not in line:
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) < 2 or cells[0].lower() in ("champ", "libellé", "critère"):
+                continue
+            rows.append((cells[0], cells[1], line.strip(), index // 40 + 1))
+        return rows
+
+    @staticmethod
+    def _label_lines(text: str) -> list[tuple[str, str, str]]:
+        """``Label : value`` lines, the second layout a real MSP uses."""
+        rows: list[tuple[str, str, str]] = []
+        for line in text.splitlines():
+            found = LABEL_LINE.match(line)
+            if found:
+                rows.append((found.group("label"), found.group("value"), line.strip()))
+        return rows
+
+    @staticmethod
+    def _title_name(text: str) -> str:
+        for line in text.splitlines()[:6]:
+            if " — " in line:
+                candidate = line.split(" — ", 1)[1].strip()
+                if candidate and not candidate.lower().startswith("version"):
+                    return candidate
+        return ""
+
+    def _payload(self, text: str, pairs: dict[str, str]) -> dict:
+        payload = dict(pairs)
+        payload.setdefault("currency", "EUR")
+        for name in LIST_HEADINGS:
+            items = self._list_items(text, name)
+            if items:
+                payload[name] = items
+        return payload
+
+    @staticmethod
+    def _heading_index(lines: list[str], headings: tuple[str, ...]) -> int:
+        for index, line in enumerate(lines):
+            lowered = line.lower()
+            if any(heading in lowered for heading in headings):
+                return index
+        return -1
+
+    def _list_items(self, text: str, name: str) -> list[str]:
+        """The items of a section, in reading order, from prose or from a table."""
+        lines = text.splitlines()
+        headings = LIST_HEADINGS[name]
+        start = self._heading_index(lines, headings)
+        if start < 0:
+            return []
+        heading_line = lines[start]
+        if "|" in heading_line:
+            return self._table_items(lines, start)
+        return self._prose_items(lines, start)
+
+    @staticmethod
+    def _table_items(lines: list[str], start: int) -> list[str]:
+        items: list[str] = []
+        for line in lines[start + 1 :]:
+            if "|" not in line:
+                if items:
+                    break
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if not cells[0] and len(cells) > 1 and cells[1]:
+                items.append(cells[1])
+                continue
+            break
+        return items
+
+    @staticmethod
+    def _prose_items(lines: list[str], start: int) -> list[str]:
+        items: list[str] = []
+        for line in lines[start + 1 :]:
+            stripped = line.strip()
+            if stripped.lower().startswith("article "):
+                break
+            bullet = BULLET.match(line)
+            if bullet:
+                items.append(bullet.group("item").strip())
+                continue
+            if stripped and not items and ":" in stripped:
+                label, _, rest = stripped.partition(":")
+                if any(heading in label.lower() for heading in ("inclus", "exclu")):
+                    items.extend(part.strip() for part in rest.split(",") if part.strip())
+                    continue
+            if stripped and items:
+                break
+        return items
 
 
 class BedrockDataAutomation:
@@ -99,8 +241,6 @@ class BedrockDataAutomation:
 
     def extract(self, document_key: str, content: bytes) -> ContractFields:
         """Invoke the data automation job and map its output to Annex B."""
-        from .schema import field_plan_payload
-
         response = self._runtime().invoke_data_automation_async(
             inputConfiguration={"s3Uri": document_key},
             outputConfiguration={"s3Uri": document_key + ".json"},
@@ -111,7 +251,6 @@ class BedrockDataAutomation:
         payload = json.loads(raw) if isinstance(raw, str) else raw
         fields = to_contract_fields(payload)
         fields.spans = self._spans(payload)
-        _ = field_plan_payload()  # the plan is what the project holds
         return fields
 
     @staticmethod

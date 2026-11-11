@@ -51,7 +51,7 @@ class ReviewInputs:
     unbilled_hours: Decimal = Decimal("0")
     unbilled_value: Decimal = Decimal("0")
     unbilled_clients: list[tuple[str, Decimal, Decimal]] = field(default_factory=list)
-    renewals: list[RenewalWatch] = field(default_factory=list)
+    renewals: list[tuple[str, RenewalWatch]] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
 
     @property
@@ -68,21 +68,30 @@ def _name_of(store: Store, client_id: str) -> str:
     return client.name if client else client_id
 
 
+COST_LABELS = {
+    "labour": "travail",
+    "tooling": "outillage",
+    "msp_aws": "AWS à charge",
+    "penalties": "pénalités",
+}
+
+
 def _cause(margin: MarginMonth) -> str:
-    if margin.costs.labour > margin.revenue.total:
-        return f"labour {margin.costs.labour} above revenue {margin.revenue.total}"
+    """Why this margin is where it is, in one French sentence with figures."""
     if margin.state.value == "INCOMPLETE":
-        return margin.incomplete_reason or "no validated contract"
+        return "aucun contrat validé pour ce mois"
+    if margin.costs.labour > margin.revenue.total:
+        return f"le travail ({margin.costs.labour}) dépasse les revenus ({margin.revenue.total})"
     biggest = max(
         (
             ("labour", margin.costs.labour),
             ("tooling", margin.costs.tooling),
-            ("AWS", margin.costs.msp_aws),
+            ("msp_aws", margin.costs.msp_aws),
             ("penalties", margin.costs.penalties),
         ),
         key=lambda pair: pair[1],
     )
-    return f"largest cost item: {biggest[0]} {biggest[1]}"
+    return f"premier poste de coût : {COST_LABELS[biggest[0]]} {biggest[1]}"
 
 
 def build_review_inputs(store: Store, month: Month, settings: Settings) -> ReviewInputs:
@@ -126,10 +135,13 @@ def build_review_inputs(store: Store, month: Month, settings: Settings) -> Revie
             for h in sorted(hours, key=lambda h: h.unbilled_value, reverse=True)[:5]
             if h.unbilled_hours > 0
         ],
-        renewals=build_renewal_watch(
-            store.list_contracts(), rows, month.last_day(), settings.renewal_horizon_days
-        ),
-        decisions=_decisions(below, hours),
+        renewals=[
+            (_name_of(store, watch.client_id), watch)
+            for watch in build_renewal_watch(
+                store.list_contracts(), rows, month.last_day(), settings.renewal_horizon_days
+            )
+        ],
+        decisions=_decisions(store, below, hours),
     )
 
 
@@ -164,17 +176,16 @@ def _variations(store: Store, rows, previous) -> list[VariationFigure]:
     return sorted(variations, key=lambda v: abs(v.delta_rate), reverse=True)[:5]
 
 
-def _decisions(below, hours) -> list[str]:
+def _decisions(store: Store, below, hours) -> list[str]:
     """Three decision proposals, each one backed by a figure."""
     proposals: list[str] = []
     for figure in below[:2]:
-        proposals.append(
-            f"Renégocier {figure.name} : marge {figure.margin_rate} sous le seuil, {figure.cause}"
-        )
+        points = (figure.margin_rate * 100).quantize(Decimal("0.1"))
+        proposals.append(f"Renégocier {figure.name} : marge {points} %, {figure.cause}")
     ranked = sorted(hours, key=lambda h: h.unbilled_value, reverse=True)
     if ranked and ranked[0].unbilled_value > 0:
         proposals.append(
-            f"Facturer ou arrêter le hors périmètre de {ranked[0].client_id} : "
+            f"Facturer ou arrêter le hors périmètre de {_name_of(store, ranked[0].client_id)} : "
             f"{ranked[0].unbilled_hours} h = {ranked[0].unbilled_value}"
         )
     return proposals[:3]

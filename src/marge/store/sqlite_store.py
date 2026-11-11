@@ -14,6 +14,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ..domain import (
     AuditEntry,
@@ -89,8 +90,16 @@ class SqliteStore:
             )
 
     def _put_many(self, table: str, rows: Sequence[tuple[str, Any]]) -> int:
-        for key, row in rows:
-            self._put(table, key, serde.encode(row))
+        """One transaction for the whole batch: a commit per row is far too slow."""
+        if not rows:
+            return 0
+        statement = (
+            f"INSERT INTO {table} (key, payload) VALUES (?, ?) "
+            f"ON CONFLICT(key) DO UPDATE SET payload=excluded.payload"
+        )
+        with self._cursor() as cur:
+            for key, row in rows:
+                cur.execute(statement, (key, json.dumps(serde.encode(row), ensure_ascii=False)))
         return len(rows)
 
     def _get(self, table: str, key: str) -> dict[str, Any] | None:
@@ -300,7 +309,7 @@ class SqliteStore:
 
     # ----------------------------------------------------------------- audit
     def append(self, entry: AuditEntry) -> None:
-        key = f"{entry.at.isoformat()}:{entry.entity_kind}:{entry.entity_id}:{len(self._all('audit'))}"
+        key = f"{entry.at.isoformat()}:{entry.entity_kind}:{entry.entity_id}:{uuid4().hex}"
         self._put("audit", key, entry)
 
     def list_entries(self, entity_kind: str | None = None, entity_id: str | None = None) -> list[AuditEntry]:
