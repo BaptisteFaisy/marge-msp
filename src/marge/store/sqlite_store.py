@@ -70,6 +70,13 @@ class SqliteStore:
         self._conn.row_factory = sqlite3.Row
         apply_migrations(self._conn)
         self.calls: list[str] = []
+        # Decoded rows of a full table read, dropped as soon as the table is
+        # written. Without it, recomputing 12 clients re-parses every JSON row
+        # of the month once per client (N+1), which the nightly budget forbids.
+        self._cache: dict[str, list[dict[str, Any]]] = {}
+        # Same idea one level up: the decoded domain objects, so recomputing a
+        # month does not re-deserialise every JSON row for every client.
+        self._decoded: dict[tuple, list] = {}
 
     # ------------------------------------------------------------ plumbing
     @contextmanager
@@ -81,7 +88,13 @@ class SqliteStore:
         finally:
             cur.close()
 
+    def _invalidate(self, table: str) -> None:
+        self._cache.pop(table, None)
+        for key in [k for k in self._decoded if k[0] == table]:
+            self._decoded.pop(key, None)
+
     def _put(self, table: str, key: str, payload: dict[str, Any]) -> None:
+        self._invalidate(table)
         with self._cursor() as cur:
             cur.execute(
                 f"INSERT INTO {table} (key, payload) VALUES (?, ?) "
@@ -97,6 +110,7 @@ class SqliteStore:
             f"INSERT INTO {table} (key, payload) VALUES (?, ?) "
             f"ON CONFLICT(key) DO UPDATE SET payload=excluded.payload"
         )
+        self._invalidate(table)
         with self._cursor() as cur:
             for key, row in rows:
                 cur.execute(statement, (key, json.dumps(serde.encode(row), ensure_ascii=False)))
@@ -109,15 +123,32 @@ class SqliteStore:
         return json.loads(row["payload"]) if row else None
 
     def _all(self, table: str, where: str = "", params: tuple = ()) -> list[dict[str, Any]]:
+        if not where:
+            cached = self._cache.get(table)
+            if cached is not None:
+                return list(cached)
         sql = f"SELECT payload FROM {table}"
         if where:
             sql += f" WHERE {where}"
         sql += " ORDER BY key"
         with self._cursor() as cur:
             cur.execute(sql, params)
-            return [json.loads(row["payload"]) for row in cur.fetchall()]
+            rows = [json.loads(row["payload"]) for row in cur.fetchall()]
+        if not where:
+            self._cache[table] = rows
+        return rows
+
+    def _rows(self, table: str, cls: type, where: str = "", params: tuple = ()) -> list:
+        """Decoded rows of a table, cached until the table is written."""
+        key = (table, cls.__name__, where, params)
+        cached = self._decoded.get(key)
+        if cached is None:
+            cached = serde.decode_many(cls, self._all(table, where, params))
+            self._decoded[key] = cached
+        return list(cached)
 
     def _delete(self, table: str, where: str, params: tuple) -> None:
+        self._invalidate(table)
         with self._cursor() as cur:
             cur.execute(f"DELETE FROM {table} WHERE {where}", params)
 
@@ -133,7 +164,7 @@ class SqliteStore:
         return serde.decode(Client, raw) if raw else None
 
     def list_clients(self, account_manager_id: str | None = None) -> list[Client]:
-        rows = serde.decode_many(Client, self._all("clients"))
+        rows = self._rows("clients", Client)
         if account_manager_id:
             rows = [c for c in rows if c.account_manager_id == account_manager_id]
         return rows
@@ -143,7 +174,7 @@ class SqliteStore:
         return self._put_many("matches", [(m.match_id, m) for m in matches])
 
     def list_matches(self, pending_only: bool = False) -> list[ClientMatch]:
-        rows = serde.decode_many(ClientMatch, self._all("matches"))
+        rows = self._rows("matches", ClientMatch)
         if pending_only:
             rows = [m for m in rows if m.status.value == "PENDING"]
         return rows
@@ -164,7 +195,7 @@ class SqliteStore:
         return max(owned, key=lambda c: c.version) if owned else None
 
     def list_contracts(self, client_id: str | None = None) -> list[Contract]:
-        rows = serde.decode_many(Contract, self._all("contracts"))
+        rows = self._rows("contracts", Contract)
         if client_id:
             rows = [c for c in rows if c.client_id == client_id]
         return rows
@@ -185,7 +216,7 @@ class SqliteStore:
     def list_interventions(
         self, month: Month | None = None, client_id: str | None = None
     ) -> list[Intervention]:
-        rows = serde.decode_many(Intervention, self._all("interventions"))
+        rows = self._rows("interventions", Intervention)
         if month is not None:
             rows = [i for i in rows if i.month == month]
         if client_id:
@@ -198,7 +229,7 @@ class SqliteStore:
     def list_classifications(
         self, status: str | None = None, client_id: str | None = None, month: Month | None = None
     ) -> list[Classification]:
-        rows = serde.decode_many(Classification, self._all("classifications"))
+        rows = self._rows("classifications", Classification)
         if status:
             rows = [c for c in rows if c.status.value == status]
         if client_id:
@@ -224,28 +255,28 @@ class SqliteStore:
         return self._put_many("rates", rows)
 
     def list_rates(self) -> list[Rate]:
-        return serde.decode_many(Rate, self._all("rates"))
+        return self._rows("rates", Rate)
 
     def save_tooling_costs(self, costs: Sequence[ToolingCost]) -> int:
         rows = [(f"{c.tool}:{i}", c) for i, c in enumerate(costs)]
         return self._put_many("tooling_costs", rows)
 
     def list_tooling_costs(self) -> list[ToolingCost]:
-        return serde.decode_many(ToolingCost, self._all("tooling_costs"))
+        return self._rows("tooling_costs", ToolingCost)
 
     def save_aws_costs(self, costs: Sequence[AwsCost]) -> int:
         rows = [(f"{c.aws_account_id}:{c.month}:{i}", c) for i, c in enumerate(costs)]
         return self._put_many("aws_costs", rows)
 
     def list_aws_costs(self, month: Month | None = None) -> list[AwsCost]:
-        rows = serde.decode_many(AwsCost, self._all("aws_costs"))
+        rows = self._rows("aws_costs", AwsCost)
         return [c for c in rows if month is None or c.month == month]
 
     def save_invoices(self, invoices: Sequence[Invoice]) -> int:
         return self._put_many("invoices", [(i.invoice_id, i) for i in invoices])
 
     def list_invoices(self, month: Month | None = None) -> list[Invoice]:
-        rows = serde.decode_many(Invoice, self._all("invoices"))
+        rows = self._rows("invoices", Invoice)
         return [i for i in rows if month is None or i.month == month]
 
     def save_penalties(self, penalties: Sequence[Penalty]) -> int:
@@ -253,7 +284,7 @@ class SqliteStore:
         return self._put_many("penalties", rows)
 
     def list_penalties(self, month: Month | None = None) -> list[Penalty]:
-        rows = serde.decode_many(Penalty, self._all("penalties"))
+        rows = self._rows("penalties", Penalty)
         return [p for p in rows if month is None or p.month == month]
 
     # ------------------------------------------------------------- analytics
@@ -264,7 +295,7 @@ class SqliteStore:
     def list_margin_months(
         self, client_id: str | None = None, month: Month | None = None
     ) -> list[MarginMonth]:
-        rows = serde.decode_many(MarginMonth, self._all("margin_months"))
+        rows = self._rows("margin_months", MarginMonth)
         if client_id:
             rows = [r for r in rows if r.client_id == client_id]
         if month is not None:
@@ -279,23 +310,24 @@ class SqliteStore:
         return self._put_many("effort_slices", keys)
 
     def list_effort_slices(self, client_id: str | None = None) -> list[EffortSlice]:
-        rows = serde.decode_many(EffortSlice, self._all("effort_slices"))
+        rows = self._rows("effort_slices", EffortSlice)
         return [r for r in rows if client_id is None or r.client_id == client_id]
 
     def save_hours_summaries(self, rows: Sequence[HoursSummary]) -> int:
         return self._put_many("hours_summaries", [(f"{r.client_id}:{r.month}", r) for r in rows])
 
     def list_hours_summaries(self, client_id: str | None = None) -> list[HoursSummary]:
-        rows = serde.decode_many(HoursSummary, self._all("hours_summaries"))
+        rows = self._rows("hours_summaries", HoursSummary)
         return [r for r in rows if client_id is None or r.client_id == client_id]
 
     def save_renewal_watch(self, rows: Sequence[RenewalWatch]) -> int:
+        self._invalidate("renewal_watch")
         with self._cursor() as cur:
             cur.execute("DELETE FROM renewal_watch")
         return self._put_many("renewal_watch", [(f"{r.contract_id}:{r.client_id}", r) for r in rows])
 
     def list_renewal_watch(self, horizon_days: int = 90) -> list[RenewalWatch]:
-        rows = serde.decode_many(RenewalWatch, self._all("renewal_watch"))
+        rows = self._rows("renewal_watch", RenewalWatch)
         return [w for w in rows if w.days_to_renewal <= horizon_days]
 
     def save_margin_lines(self, client_id: str, month: Month, rows: Sequence[MarginLine]) -> None:
@@ -304,8 +336,8 @@ class SqliteStore:
         self._put_many("margin_lines", keys)
 
     def margin_lines(self, client_id: str, month: Month) -> list[MarginLine]:
-        raw = self._all("margin_lines", "key LIKE ?", (f"{client_id}:{month}:%",))
-        return serde.decode_many(MarginLine, raw)
+        params = (f"{client_id}:{month}:%",)
+        return self._rows("margin_lines", MarginLine, "key LIKE ?", params)
 
     # ----------------------------------------------------------------- audit
     def append(self, entry: AuditEntry) -> None:
@@ -313,7 +345,7 @@ class SqliteStore:
         self._put("audit", key, entry)
 
     def list_entries(self, entity_kind: str | None = None, entity_id: str | None = None) -> list[AuditEntry]:
-        rows = serde.decode_many(AuditEntry, self._all("audit"))
+        rows = self._rows("audit", AuditEntry)
         if entity_kind:
             rows = [e for e in rows if e.entity_kind == entity_kind]
         if entity_id:

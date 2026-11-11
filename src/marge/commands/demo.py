@@ -73,10 +73,10 @@ def demo(args: argparse.Namespace) -> int:
 
     root = Path(args.data)
     if not (root / "clients.json").exists():
-        from data.generator.build import build_dataset
+        from data.generator.build import generate
 
         print(f"no dataset in {root}: generating one…")
-        build_dataset(root, seed=args.seed)
+        generate(root)
 
     db = args.db or str(Path(tempfile.mkdtemp()) / "marge-demo.sqlite3")
     store = open_store(db)
