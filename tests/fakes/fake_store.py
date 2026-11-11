@@ -31,8 +31,17 @@ from marge.domain import (
 )
 
 
+def _effort_key(row: EffortSlice) -> tuple:
+    return (row.client_id, row.month, row.category, row.level, row.work_class)
+
+
 class FakeStore:
-    """Deterministic, dependency-free persistence double."""
+    """Deterministic, dependency-free persistence double.
+
+    Writers upsert on the natural key of each aggregate, like ``SqliteStore``
+    does with its primary key: recomputing a month must replace the rows, not
+    add a second copy.
+    """
 
     def __init__(self) -> None:
         self.clients: dict[str, Client] = {}
@@ -217,7 +226,11 @@ class FakeStore:
         return sorted(rows, key=lambda r: (r.client_id, r.month, r.calc_version))
 
     def save_effort_slices(self, rows: Sequence[EffortSlice]) -> int:
-        self.effort_slices.extend(rows)
+        """Upsert on the natural key, exactly like the SQLite backend does."""
+        for row in rows:
+            key = (row.client_id, row.month, row.category, row.level, row.work_class)
+            self.effort_slices = [r for r in self.effort_slices if _effort_key(r) != key]
+            self.effort_slices.append(row)
         return len(rows)
 
     def list_effort_slices(self, client_id: str | None = None) -> list[EffortSlice]:
@@ -227,7 +240,11 @@ class FakeStore:
         return list(rows)
 
     def save_hours_summaries(self, rows: Sequence[HoursSummary]) -> int:
-        self.hours_summaries.extend(rows)
+        """Upsert on (client, month): recomputing must not duplicate a row."""
+        for row in rows:
+            key = (row.client_id, row.month)
+            self.hours_summaries = [r for r in self.hours_summaries if (r.client_id, r.month) != key]
+            self.hours_summaries.append(row)
         return len(rows)
 
     def list_hours_summaries(self, client_id: str | None = None) -> list[HoursSummary]:
