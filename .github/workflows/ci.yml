@@ -33,6 +33,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Tooling (ruff, pytest)
+        run: |
+          # The self-hosted workers already ship them; a GitHub-hosted runner
+          # needs them installed (kept optional so an offline worker still runs).
+          python3 -m pip install --quiet --upgrade pip 2>/dev/null || true
+          python3 -m pip install --quiet ruff pytest fastapi httpx pydantic 2>/dev/null \
+            || python3 -m pip install --quiet --user --break-system-packages \
+                 ruff pytest fastapi httpx pydantic 2>/dev/null \
+            || echo "installation skipped: the worker already has the tools"
+
       - name: Lint (ruff)
         run: |
           python3 -m ruff --version
