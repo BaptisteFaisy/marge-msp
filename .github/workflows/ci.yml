@@ -18,6 +18,9 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHONPATH: src
+
 jobs:
   ci:
     name: ci
@@ -33,8 +36,12 @@ jobs:
       - name: Lint (ruff)
         run: |
           python3 -m ruff --version
-          python3 -m ruff check src tests data infra scripts
-          python3 -m ruff format --check src tests data infra scripts
+          PATHS=""
+          for d in src tests data infra scripts; do
+            [ -d "$d" ] && PATHS="$PATHS $d"
+          done
+          python3 -m ruff check $PATHS
+          python3 -m ruff format --check $PATHS
 
       - name: Size guard (< 500 lines / < 50 per function)
         run: python3 scripts/check_limits.py
