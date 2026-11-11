@@ -9,13 +9,22 @@ from __future__ import annotations
 
 from .asgi import build_scope, handle
 from .handlers import classify_handler, contracts_handler, mcp_handler, portal_handler
-from .jobs import monthly_handler, nightly_handler, publish_handler, weekly_handler
+from .jobs import (
+    classify_client_handler,
+    list_client_ids_handler,
+    monthly_handler,
+    nightly_handler,
+    publish_handler,
+    weekly_handler,
+)
 
 __all__ = [
     "build_scope",
+    "classify_client_handler",
     "classify_handler",
     "contracts_handler",
     "handle",
+    "list_client_ids_handler",
     "mcp_handler",
     "monthly_handler",
     "nightly_handler",

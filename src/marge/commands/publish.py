@@ -28,6 +28,7 @@ def publish(args: argparse.Namespace) -> int:
         prefix=args.prefix,
         database=args.database,
         bucket=args.s3 or "",
+        file_format=args.format,
     )
 
     for table in report.tables:
@@ -53,6 +54,12 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--database", default="marge", help="Glue database name")
     parser.add_argument("--month", default="", help="comma separated YYYY-MM list (default: all)")
     parser.add_argument("--ddl", action="store_true", help="also print the Athena DDL")
+    parser.add_argument(
+        "--format",
+        default="jsonl",
+        choices=("jsonl", "parquet"),
+        help="jsonl needs no dependency, parquet is 3-5x cheaper to query (needs pyarrow)",
+    )
 
 
 publish.configure = configure  # type: ignore[attr-defined]

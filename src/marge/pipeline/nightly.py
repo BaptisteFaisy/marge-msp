@@ -46,6 +46,7 @@ def classify_pending(
     month: Month,
     classifier: Classifier | None,
     limit: int | None = None,
+    client_id: str | None = None,
 ) -> tuple[int, int, int]:
     """Classify every intervention of the month that has no classification yet.
 
@@ -55,6 +56,10 @@ def classify_pending(
 
     ``limit`` bounds one pass, so a Lambda invocation stays inside its window:
     the caller re-invokes until the report says nothing was classified.
+
+    ``client_id`` restricts the pass to one client, which is what lets the
+    nightly run fan out: one Step Functions Map branch per client instead of a
+    single sequential loop (idea 74).
     """
     if classifier is None:
         return (0, 0, 0)
@@ -62,6 +67,8 @@ def classify_pending(
     classified = reused = queued = 0
     for intervention in store.list_interventions(month=month):
         if intervention.intervention_id in already or not intervention.attributed:
+            continue
+        if client_id is not None and intervention.client_id != client_id:
             continue
         contract = store.active_contract(intervention.client_id or "", month)
         if contract is None:

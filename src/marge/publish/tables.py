@@ -10,7 +10,7 @@ Every amount is rendered as text: no float ever touches a figure.
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from ..domain import Contract, HoursSummary, MarginMonth, Month
 from ..store.athena import ANALYTICAL_TABLES, ExternalTableSpec
@@ -30,6 +30,63 @@ def columns_of(name: str) -> list[str]:
     """Column names of one table, partition key included, in DDL order."""
     spec = table_spec(name)
     return [c.name for c in spec.columns] + [p.name for p in spec.partition_keys]
+
+
+def _scale_of(sql_type: str) -> int | None:
+    """Scale of a ``DECIMAL(p,s)`` column, ``None`` for any other type."""
+    upper = sql_type.upper()
+    if not upper.startswith("DECIMAL"):
+        return None
+    _, _, scale = upper[len("DECIMAL(") :].rstrip(")").partition(",")
+    return int(scale or 0)
+
+
+def column_scales(name: str) -> dict[str, int]:
+    """Declared scale of every decimal column: the DDL is the source of truth."""
+    return {
+        column.name: scale
+        for column in _all_columns(name)
+        if (scale := _scale_of(column.sql_type)) is not None
+    }
+
+
+def typed_columns(name: str) -> dict[str, bool]:
+    """``{column: is_typed}`` — typed means anything but STRING.
+
+    A typed column cannot hold the empty string: Parquet refuses it outright
+    ("Could not convert '' to int32") and Athena would read a JSONL "" as a
+    cast error. Both formats get ``null`` instead.
+    """
+    return {column.name: not column.sql_type.upper().startswith("STRING") for column in _all_columns(name)}
+
+
+def _all_columns(name: str):
+    spec = table_spec(name)
+    return (*spec.columns, *spec.partition_keys)
+
+
+def normalise_row(name: str, row: dict) -> dict:
+    """Round every amount to the scale its column declares.
+
+    Athena reads a JSONL string or a Parquet decimal against the declared
+    ``DECIMAL(p,s)``; a value carrying more decimals is either rejected outright
+    (Parquet: "Rescaling Decimal value would cause data loss") or silently
+    rounded (JSONL). Rounding here, once, keeps both formats identical to the
+    schema — the DDL stays the single source of truth.
+    """
+    scales = column_scales(name)
+    typed = typed_columns(name)
+    fixed = dict(row)
+    for column, scale in scales.items():
+        value = fixed.get(column)
+        if isinstance(value, Decimal):
+            # ROUND_HALF_UP, comme marge.domain.money : le lac doit contenir
+            # exactement ce que le moteur a calculé, pas un arrondi bancaire.
+            fixed[column] = value.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+    for column, is_typed in typed.items():
+        if is_typed and fixed.get(column) == "":
+            fixed[column] = None
+    return fixed
 
 
 def _json_value(value: object) -> object:
@@ -238,7 +295,7 @@ def render_jsonl(name: str, rows: list[dict[str, object]]) -> str:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        for row in rows
+        for row in (normalise_row(name, raw) for raw in rows)
     ]
     return "\n".join(lines) + ("\n" if lines else "")
 
@@ -252,7 +309,9 @@ __all__ = [
     "BUILDERS",
     "HoursSummary",
     "MarginMonth",
+    "column_scales",
     "columns_of",
+    "normalise_row",
     "render_jsonl",
     "rows_of",
     "table_spec",

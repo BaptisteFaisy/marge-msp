@@ -46,13 +46,19 @@ class OrchestrationStack(MargeStack):
         curated_bucket_name: str = "",
         alarm_topic: sns.ITopic | None = None,
         monthly_cron: str = MONTHLY_CRON,
+        map_concurrency: int = 10,
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, environment=environment, **kwargs)
         self.table_name = table_name
         self.curated_bucket_name = curated_bucket_name
         self.alarm_topic = alarm_topic
+        # Une branche Map par client : le temps de la nuit suit la concurrence,
+        # plus le nombre de clients (ENF-PERF-01, idée 74).
+        self.map_concurrency = map_concurrency
         self.role = self._create_job_role()
+        self.list_clients = self._job("ListClients", "marge.lambdas.jobs.list_client_ids_handler", 60)
+        self.classify_client = self._job("ClassifyClient", "marge.lambdas.jobs.classify_client_handler", 900)
         self.nightly = self._job("Nightly", "marge.lambdas.jobs.nightly_handler", 900)
         self.publish = self._job("Publish", "marge.lambdas.jobs.publish_handler", 600)
         self.weekly = self._job("Weekly", "marge.lambdas.jobs.weekly_handler", 300)
@@ -119,14 +125,24 @@ class OrchestrationStack(MargeStack):
 
     # ------------------------------------------------------- state machine
     def _nightly_machine(self) -> sfn.StateMachine:
-        """classify -> recompute -> publish, with the failure reported once."""
+        """list clients -> Map(classify per client) -> recompute -> publish -> weekly.
+
+        The Map state replaces one sequential loop over every intervention: each
+        branch classifies a single client, so the nightly duration follows the
+        Map concurrency instead of the client count (ENF-PERF-01, idea 74). A
+        single branch failing must not lose the night, hence ``ResultSelector``
+        plus a catch on the Map that continues to the recalculation.
+        """
         failed = sfn.Fail(self, "NightlyFailed", cause="NightlyRunFailed", error="MargeNightlyError")
+        list_clients = self._step("ListClientsStep", self.list_clients)
+        fan_out = self._map_state()
         nightly = self._step("NightlyStep", self.nightly)
         publish = self._step("PublishStep", self.publish)
         weekly = self._step("WeeklyStep", self.weekly)
-        definition = nightly.next(publish).next(weekly)
-        for state in (nightly, publish, weekly):
+        definition = list_clients.next(fan_out).next(nightly).next(publish).next(weekly)
+        for state in (list_clients, nightly, publish, weekly):
             state.add_catch(handler=failed, result_path=sfn.JsonPath.DISCARD)
+        fan_out.add_catch(handler=nightly, result_path=sfn.JsonPath.DISCARD)
         return sfn.StateMachine(
             self,
             "NightlyStateMachine",
@@ -135,6 +151,29 @@ class OrchestrationStack(MargeStack):
             timeout=Duration.hours(1),
             tracing_enabled=True,
         )
+
+    def _map_state(self) -> sfn.Map:
+        """One branch per client, bounded concurrency, month passed through."""
+        branch = tasks.LambdaInvoke(
+            self,
+            "ClassifyClientBranch",
+            lambda_function=self.classify_client,
+            payload_response_only=True,
+            retry_on_service_exceptions=True,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "client_id.$": "$$.Map.Item.Value",
+                    "month.$": "$.Payload.month",
+                }
+            ),
+        )
+        return sfn.Map(
+            self,
+            "ClassifyPerClient",
+            items_path=sfn.JsonPath.string_at("$.Payload.client_ids"),
+            max_concurrency=self.map_concurrency,
+            result_path="$.Classification",
+        ).iterator(branch)
 
     def _step(self, name: str, function: lambda_.IFunction) -> tasks.LambdaInvoke:
         return tasks.LambdaInvoke(

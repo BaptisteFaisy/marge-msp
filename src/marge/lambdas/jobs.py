@@ -41,6 +41,67 @@ def nightly_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any
     }
 
 
+def list_client_ids_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """Feed the Step Functions Map state: one branch per client (idea 74).
+
+    Kept deliberately thin — the payload is the list the Map iterates on, so the
+    state machine fans out without any per-client logic of its own.
+    """
+    ids = [client.client_id for client in _store().list_clients()]
+    return {"client_ids": ids, "count": len(ids), "month": event.get("month", "")}
+
+
+def classify_client_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """Classify one client's interventions for one month.
+
+    One Map branch = one client = one Lambda invocation, so the wall-clock time
+    of the nightly run stops growing with the number of clients and follows the
+    Map concurrency instead.
+    """
+    from ..classify.memory import DecisionMemory
+    from ..classify.service import classify
+    from ..domain import Month
+    from ..llmlog import logged_classifier
+    from ..pipeline.nightly import classify_pending
+
+    store = _store()
+    client_id = event.get("client_id") or (event.get("Payload") or {}).get("client_id")
+    month_raw = event.get("month") or (event.get("Payload") or {}).get("month") or ""
+    if not client_id:
+        return {"classified": 0, "detail": "no client_id"}
+    month = Month.parse(month_raw) if month_raw else None
+    if month is None:
+        from ..pipeline.assemble import months_present
+
+        present = months_present(store)
+        month = present[-1] if present else None
+    if month is None:
+        return {"classified": 0, "detail": "no month"}
+
+    model = _classifier()
+    memory = DecisionMemory(store)
+    settings = store.load()
+
+    def plain(intervention, contract):
+        return classify(intervention, contract, model, settings, memory=memory)
+
+    classified, reused, queued = classify_pending(
+        store,
+        settings,
+        month,
+        logged_classifier(plain, store, purpose="classify", model=model),
+        limit=int(event.get("limit") or 0) or None,
+        client_id=client_id,
+    )
+    return {
+        "client_id": client_id,
+        "month": str(month),
+        "classified": classified,
+        "reused": reused,
+        "queued": queued,
+    }
+
+
 def publish_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
     """Write the five analytical tables into the curated bucket (Annex A)."""
     from ..domain import Month
