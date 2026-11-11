@@ -68,8 +68,12 @@ def test_no_undeclared_route(client: TestClient) -> None:
     assert exposed_routes(client) == EXPECTED | ADDITIONS
 
 
+PUBLIC_ROUTES = {("GET", "/v1/auth/config")}
+"""Bootstrap metadata for the static portal: no secret, deliberately public."""
+
+
 def test_every_route_requires_authentication(client: TestClient) -> None:
-    for method, path in sorted(EXPECTED | ADDITIONS):
+    for method, path in sorted((EXPECTED | ADDITIONS) - PUBLIC_ROUTES):
         concrete = path.replace("{match_id}", "m-001")
         concrete = concrete.replace("{contract_id}", "ctr-001")
         concrete = concrete.replace("{intervention_id}", "wl-001")
@@ -80,3 +84,12 @@ def test_every_route_requires_authentication(client: TestClient) -> None:
 
 def test_dev_mode_is_the_default_auth_mode(client: TestClient) -> None:
     assert client.app.state.auth_mode == AuthMode.DEV
+
+
+def test_auth_config_is_public_and_declares_the_mode(client: TestClient) -> None:
+    """The portal must learn how to authenticate before it can authenticate."""
+    response = client.get("/v1/auth/config")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "dev"
+    assert body["cognito"] is None

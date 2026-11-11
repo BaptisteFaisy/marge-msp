@@ -168,14 +168,40 @@ def _validate_claims(claims: dict, config: CognitoConfig) -> None:
         raise AuthError(401, "token audience does not match this deployment")
 
 
+# A user in several groups acts with the broadest of them: the CDK creates one
+# group per role of spec 6, and a controller who also manages accounts expects
+# to see every client, not only their own.
+ROLE_PRECEDENCE = (
+    ActorRole.CONTROLLER,
+    ActorRole.ADMINISTRATOR,
+    ActorRole.EXECUTIVE,
+    ActorRole.OPERATIONS_DIRECTOR,
+    ActorRole.ACCOUNT_MANAGER,
+)
+
+
 def _role_from_claims(claims: dict) -> ActorRole:
-    """Read the role from Cognito custom claims, defaulting to the narrowest."""
-    candidates = (
-        claims.get("custom:role"),
-        claims.get("role"),
-        claims.get("cognito:role"),
-    )
-    for raw in candidates:
+    """Read the role from the Cognito groups, then from a custom claim.
+
+    The groups are the source of truth: the stack creates one per role and the
+    demo users are attached to theirs. A custom ``role`` claim is accepted as a
+    fallback for pools that do not use groups. Anything unrecognised falls back
+    to the narrowest role, never to a wider one.
+    """
+    groups = claims.get("cognito:groups")
+    if isinstance(groups, str):
+        groups = [groups]
+    if isinstance(groups, list):
+        found = set()
+        for raw in groups:
+            try:
+                found.add(ActorRole(str(raw).upper()))
+            except ValueError:
+                continue
+        for role in ROLE_PRECEDENCE:
+            if role in found:
+                return role
+    for raw in (claims.get("custom:role"), claims.get("role"), claims.get("cognito:role")):
         if isinstance(raw, str):
             try:
                 return ActorRole(raw.upper())
@@ -187,7 +213,15 @@ def _role_from_claims(claims: dict) -> ActorRole:
 
 def _actor_from_claims(claims: dict, config: CognitoConfig) -> Actor:
     _validate_claims(claims, config)
-    actor_id = claims.get("sub") or claims.get("username") or claims.get("cognito:username")
+    # The pool signs users in by email, so `sub` is an opaque alias: prefer a
+    # readable identifier for the audit trail, fall back to the subject.
+    actor_id = (
+        claims.get("preferred_username")
+        or claims.get("email")
+        or claims.get("username")
+        or claims.get("sub")
+        or claims.get("cognito:username")
+    )
     if not isinstance(actor_id, str) or not actor_id:
         raise AuthError(401, "token carries no subject")
     return Actor(actor_id=actor_id, role=_role_from_claims(claims))

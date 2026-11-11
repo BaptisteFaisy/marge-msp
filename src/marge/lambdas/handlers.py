@@ -35,6 +35,21 @@ def _store() -> Any:
     return _STORE
 
 
+def _cognito_config() -> Any:
+    """Verification material for the cognito mode, from the stack environment.
+
+    Without it the app refuses every token instead of pretending to verify one
+    (spec 17) — which is exactly what a misconfigured deployment must do.
+    """
+    from ..api.auth import CognitoConfig
+
+    issuer = os.environ.get("MARGE_COGNITO_ISSUER", "")
+    client_id = os.environ.get("MARGE_COGNITO_CLIENT_ID", "")
+    if not issuer or not client_id:
+        return None
+    return CognitoConfig(issuer=issuer, client_id=client_id)
+
+
 def _app() -> Any:
     """The portal FastAPI app, created once per warm container."""
     global _APP
@@ -44,6 +59,7 @@ def _app() -> Any:
         _APP = create_app(
             store=_store(),
             auth_mode=os.environ.get("MARGE_AUTH_MODE", "cognito"),
+            cognito_config=_cognito_config(),
             portal_dir=os.environ.get("MARGE_PORTAL_DIR") or None,
         )
     return _APP
