@@ -26,6 +26,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 from uuid import uuid4
 
+from ..calc.versioning import CalcVersion
 from ..domain import (
     AuditEntry,
     AwsCost,
@@ -38,6 +39,7 @@ from ..domain import (
     HoursSummary,
     Intervention,
     Invoice,
+    LlmCall,
     MarginLine,
     MarginMonth,
     Month,
@@ -49,46 +51,13 @@ from ..domain import (
 )
 from . import serde
 
-DEFAULT_TABLE_NAME = "marge"
-
-# GSI kind -> (index name, partition attribute). The kind is embedded in the
-# GSI partition value ("contracts#CLIENT#c-001") so indexes stay sparse and
-# collision-free across entities.
-_GSI_OF: dict[str, tuple[str, str]] = {
-    "CLIENT": ("gsi_client", "client_pk"),
-    "MONTH": ("gsi_month", "month_pk"),
-    "STATUS": ("gsi_status", "status_pk"),
-}
-
 _BATCH_SIZE = 25  # DynamoDB BatchWriteItem hard limit
 
-
-def create_table_resources(table_name: str = DEFAULT_TABLE_NAME) -> dict[str, Any]:
-    """Pure-Python table/GSI description for the CDK stack (no network call)."""
-    attributes = [{"AttributeName": name, "AttributeType": "S"} for name in ("pk", "sk")]
-    attributes += [{"AttributeName": attr, "AttributeType": "S"} for _, attr in _GSI_OF.values()]
-    gsis = [
-        {
-            "IndexName": index,
-            "KeySchema": [
-                {"AttributeName": attr, "KeyType": "HASH"},
-                {"AttributeName": "sk", "KeyType": "RANGE"},
-            ],
-            "Projection": {"ProjectionType": "ALL"},
-        }
-        for index, attr in _GSI_OF.values()
-    ]
-    return {
-        "TableName": table_name,
-        "BillingMode": "PAY_PER_REQUEST",
-        "PointInTimeRecoverySpecification": {"PointInTimeRecoveryEnabled": True},
-        "AttributeDefinitions": attributes,
-        "KeySchema": [
-            {"AttributeName": "pk", "KeyType": "HASH"},
-            {"AttributeName": "sk", "KeyType": "RANGE"},
-        ],
-        "GlobalSecondaryIndexes": gsis,
-    }
+from .dynamo_schema import (  # noqa: E402
+    DEFAULT_TABLE_NAME,
+    GSI_OF,
+    create_table_resources,
+)
 
 
 def _default_client(region_name: str | None = None) -> Any:
@@ -137,7 +106,7 @@ class DynamoStore:
         }
         for kind, key_value in (("CLIENT", client_id), ("MONTH", month), ("STATUS", status)):
             if key_value:
-                item[_GSI_OF[kind][1]] = _s(f"{entity}#{kind}#{key_value}")
+                item[GSI_OF[kind][1]] = _s(f"{entity}#{kind}#{key_value}")
         return item
 
     def _put_item(self, item: dict[str, dict[str, str]]) -> None:
@@ -194,7 +163,7 @@ class DynamoStore:
     ) -> list[Any]:
         """Decoded rows of one entity partition, optionally through a GSI."""
         if gsi_kind is not None and gsi_value is not None:
-            index, attr = _GSI_OF[gsi_kind]
+            index, attr = GSI_OF[gsi_kind]
             items = self._query(attr, f"{entity}#{gsi_kind}#{gsi_value}", index_name=index)
         else:
             items = self._query("pk", entity, sk_prefix=sk_prefix)
@@ -463,6 +432,33 @@ class DynamoStore:
             rows = [e for e in rows if e.entity_kind == entity_kind]
         if entity_id:
             rows = [e for e in rows if e.entity_id == entity_id]
+        return rows
+
+    # ------------------------------------------------------- calc versions
+    def save_calc_version(self, version: CalcVersion) -> None:
+        self._put_item(self._item("calc_versions", str(version.version), version))
+
+    def list_calc_versions(self) -> list[CalcVersion]:
+        rows = self._rows("calc_versions", CalcVersion)
+        return sorted(rows, key=lambda v: v.version)
+
+    # ------------------------------------------------------------- llm log
+    def append_llm_call(self, call: LlmCall) -> None:
+        """Append-only: one item per call, sorted by timestamp."""
+        sk = f"{call.at.isoformat()}:{call.purpose}:{call.entity_id}:{uuid4().hex}"
+        item = self._item("llm_calls", sk, call, client_id=call.client_id or None)
+        self._put_item(item)
+
+    def list_llm_calls(
+        self, purpose: str | None = None, client_id: str | None = None, model_id: str | None = None
+    ) -> list[LlmCall]:
+        rows = self._rows("llm_calls", LlmCall)
+        if purpose:
+            rows = [c for c in rows if c.purpose == purpose]
+        if client_id:
+            rows = [c for c in rows if c.client_id == client_id]
+        if model_id:
+            rows = [c for c in rows if c.model_id == model_id]
         return rows
 
     # -------------------------------------------------------------- settings

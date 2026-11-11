@@ -1,4 +1,17 @@
-"""The exposed route table must match chapter 16 exactly (spec 16)."""
+"""The exposed route table is locked: chapter 16 plus the declared additions.
+
+Chapter 16 lists the fourteen routes of the validation portal. Three more
+families were added deliberately and are declared here so that any new route
+still has to be announced in a pull request:
+
+* ``/v1/margins/{client_id}/{month}/why`` — decomposition down to the source
+  lines (ENF-TRA-01);
+* ``/v1/llm-calls`` and ``/v1/llm-calls/summary`` — the model call log
+  (ENF-IA-01..03);
+* ``/v1/calc-versions`` and ``/v1/calc-versions/diff`` — calculation versions
+  and what a new version changed (EF-CAL-03);
+* ``/v1/auth/config`` — how the static portal should authenticate (idea 61).
+"""
 
 from __future__ import annotations
 
@@ -24,6 +37,16 @@ EXPECTED = {
 }
 
 
+ADDITIONS = {
+    ("GET", "/v1/auth/config"),
+    ("GET", "/v1/margins/{client_id}/{month}/why"),
+    ("GET", "/v1/llm-calls"),
+    ("GET", "/v1/llm-calls/summary"),
+    ("GET", "/v1/calc-versions"),
+    ("GET", "/v1/calc-versions/diff"),
+}
+
+
 def exposed_routes(client: TestClient) -> set[tuple[str, str]]:
     """Route table read from the OpenAPI document (version-independent)."""
     routes: set[tuple[str, str]] = set()
@@ -36,14 +59,21 @@ def exposed_routes(client: TestClient) -> set[tuple[str, str]]:
 
 
 def test_route_table_matches_chapter_16(client: TestClient) -> None:
-    assert exposed_routes(client) == EXPECTED
+    """The fourteen routes of chapter 16 are all present."""
+    assert exposed_routes(client) >= EXPECTED
+
+
+def test_no_undeclared_route(client: TestClient) -> None:
+    """Nothing is exposed beyond chapter 16 and the declared additions."""
+    assert exposed_routes(client) == EXPECTED | ADDITIONS
 
 
 def test_every_route_requires_authentication(client: TestClient) -> None:
-    for method, path in sorted(EXPECTED):
+    for method, path in sorted(EXPECTED | ADDITIONS):
         concrete = path.replace("{match_id}", "m-001")
         concrete = concrete.replace("{contract_id}", "ctr-001")
         concrete = concrete.replace("{intervention_id}", "wl-001")
+        concrete = concrete.replace("{client_id}", "c-001").replace("{month}", "2026-10")
         response = client.request(method, concrete, json={})
         assert response.status_code == 401, f"{method} {concrete} -> {response.status_code}"
 

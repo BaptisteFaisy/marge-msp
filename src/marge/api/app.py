@@ -23,6 +23,8 @@ from ..domain import Settings
 from ..store.base import Store
 from .auth import AuthMode, CognitoConfig
 from .routes_admin import router as admin_router
+from .routes_auth import router as auth_router
+from .routes_insight import router as insight_router
 from .routes_validation import router as validation_router
 
 APP_TITLE = "Marge — validation portal API"
@@ -52,6 +54,8 @@ def create_app(
     app.state.cognito_config = cognito_config
     app.include_router(validation_router)
     app.include_router(admin_router)
+    app.include_router(insight_router)
+    app.include_router(auth_router)
     mount_portal(app, portal_dir)
     return app
 

@@ -19,6 +19,7 @@ from .enums import (
     WorkClass,
     WorkLevel,
 )
+from .llm_log import LlmCall
 from .money import (
     DEFAULT_CURRENCY,
     CurrencyMismatch,
@@ -78,6 +79,7 @@ __all__ = [
     "Intervention",
     "Invoice",
     "InvoiceKind",
+    "LlmCall",
     "MarginLine",
     "MarginMonth",
     "MarginState",

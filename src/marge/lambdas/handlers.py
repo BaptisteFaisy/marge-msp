@@ -67,6 +67,7 @@ def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, An
     from ..classify.memory import DecisionMemory
     from ..classify.service import classify
     from ..domain import Month
+    from ..llmlog import logged_classifier
     from ..pipeline.nightly import classify_pending
 
     store = _store()
@@ -79,8 +80,12 @@ def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, An
     memory = DecisionMemory(store)
     settings = store.load()
 
-    def run(intervention, contract):
+    def plain(intervention, contract):
         return classify(intervention, contract, model, settings, memory=memory)
+
+    # Chaque appel modèle est tracé : modèle, latence, tokens, coût estimé,
+    # classe produite (ENF-IA-01..03, idée 18).
+    run = logged_classifier(plain, store, purpose="classify", model=model)
 
     classified, reused, queued = classify_pending(store, settings, month, run, limit=limit)
     return {
