@@ -12,6 +12,8 @@ blueprint, the project and the permissions.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
 
 from aws_cdk import CfnOutput, Duration
@@ -19,6 +21,12 @@ from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from common import MargeStack, lambda_package
+
+# Le plan de champs de l'annexe B vit dans le code applicatif : le CDK l'importe
+# au lieu d'en entretenir une copie, sinon le blueprint et l'extracteur divergent.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+
+from marge.contracts.schema import blueprint_schema
 
 __all__ = ["ContractsAiStack"]
 
@@ -33,30 +41,6 @@ _INVOKE_ACTIONS = (
 )
 """Actions the classification lambda needs on Bedrock."""
 
-ANNEX_B_FIELD_PLAN: dict[str, dict[str, str]] = {
-    "customer_name": {"type": "STRING", "instruction": "The legal name of the customer."},
-    "start_date": {"type": "STRING", "instruction": "The date the contract takes effect."},
-    "end_date": {"type": "STRING", "instruction": "The end date of the contract."},
-    "renewal_terms": {"type": "STRING", "instruction": "How and for how long the contract renews."},
-    "termination_notice": {"type": "STRING", "instruction": "The notice required to terminate."},
-    "monthly_subscription": {"type": "STRING", "instruction": "The monthly fee, excluding tax."},
-    "currency": {"type": "STRING", "instruction": "The currency of the amounts."},
-    "included_hours_per_month": {
-        "type": "STRING",
-        "instruction": "The number of hours included in the subscription, empty when unlimited.",
-    },
-    "extra_hour_rate": {"type": "STRING", "instruction": "The hourly rate beyond the quota."},
-    "services_included": {"type": "STRING", "instruction": "The list of the services included."},
-    "exclusions": {"type": "STRING", "instruction": "The list of the exclusions."},
-    "service_hours": {"type": "STRING", "instruction": "The service windows, for example 24x7."},
-    "sla_commitments": {"type": "STRING", "instruction": "The service level commitments."},
-    "penalties": {"type": "STRING", "instruction": "How the penalties are computed."},
-    "indexation_clause": {"type": "STRING", "instruction": "The price indexation clause."},
-    "covered_accounts_or_resources": {
-        "type": "STRING",
-        "instruction": "The number of accounts or resources covered.",
-    },
-}
 """The field plan of Annex B, applied by Bedrock Data Automation (spec 13.1)."""
 
 
@@ -79,7 +63,7 @@ class ContractsAiStack(MargeStack):
         self.inference_profile_arn = inference_profile_arn
         self.bedrock_role = self._create_bedrock_role()
         self.classifier = self._create_classifier()
-        self.blueprint = self.contract_blueprint(ANNEX_B_FIELD_PLAN)
+        self.blueprint = self.contract_blueprint(blueprint_schema())
         self.project = self.data_automation_project(self.blueprint)
         self.project.add_metadata(
             "CloudFormation-Validate::F3006",
@@ -165,21 +149,24 @@ class ContractsAiStack(MargeStack):
             )
         )
 
-    def contract_blueprint(self, fields: dict[str, dict[str, str]]) -> bedrock.CfnBlueprint:
-        """Declare the Bedrock Data Automation blueprint of the Annex B field plan.
+    def contract_blueprint(self, schema: dict[str, Any]) -> bedrock.CfnBlueprint:
+        """Declare the Bedrock Data Automation blueprint of the Annex B plan.
 
-        ``fields`` maps a field name onto its extraction instruction, for
-        example ``{"monthly_subscription": {"type": "STRING",
-        "instruction": "The monthly fee"}}``. The blueprint is applied to the
-        PDF contracts stored in S3; every extracted field keeps its source
-        passage so that the controller can validate it (EF-CTR-02).
+        ``schema`` is the document produced by
+        ``marge.contracts.schema.blueprint_schema``: a ``class``, a
+        ``description`` and ``properties`` mapping each field onto
+        ``{type, inferenceType, instruction}``. That is the shape the API
+        accepts — a ``{"fields": {...}}`` payload is rejected with "Request has
+        invalid blueprint schema". The blueprint is applied to the PDF contracts
+        in S3; every extracted field keeps its source passage so the controller
+        can validate it (EF-CTR-02).
         """
         return bedrock.CfnBlueprint(
             self,
             "ContractFieldsBlueprint",
             blueprint_name=f"{self.qualifier}-contract-fields",
             type="DOCUMENT",
-            schema={"fields": fields},
+            schema=schema,
         )
 
     def data_automation_project(self, blueprint: bedrock.CfnBlueprint) -> bedrock.CfnDataAutomationProject:

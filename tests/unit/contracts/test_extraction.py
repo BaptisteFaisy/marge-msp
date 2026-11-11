@@ -52,10 +52,32 @@ def test_field_plan_covers_annex_b() -> None:
     assert "extra_hour_rate" in FIELD_PLAN
 
 
-def test_field_plan_payload_is_serialisable() -> None:
+def test_field_plan_payload_matches_the_bedrock_blueprint_shape() -> None:
+    """The shape AWS accepts, read from a public blueprint on 2026-11-11.
+
+    ``create-blueprint`` rejects a ``{"fields": {...}}`` payload with "Request
+    has invalid blueprint schema"; it wants ``class`` + ``description`` +
+    ``properties`` where every property carries ``type``, ``inferenceType`` and
+    ``instruction``.
+    """
     payload = field_plan_payload()
-    assert payload["name"] == "marge-contract-fields-v1"
-    assert len(payload["fields"]) == 16
+    assert payload["class"] == "ManagedServicesContract"
+    assert payload["description"]
+    assert set(payload["properties"]) == {name.upper() for name in FIELD_PLAN}
+    for spec in payload["properties"].values():
+        assert set(spec) >= {"type", "inferenceType", "instruction"}
+        assert spec["type"] in {"string", "number", "array"}
+        assert spec["inferenceType"] == "explicit"
+    assert payload["properties"]["SERVICES_INCLUDED"]["items"] == {"type": "string"}
+    assert payload["properties"]["MONTHLY_SUBSCRIPTION"]["type"] == "string"
+    assert payload["properties"]["COVERED_ACCOUNTS_OR_RESOURCES"]["type"] == "number"
+
+
+def test_field_plan_payload_is_json_serialisable() -> None:
+    import json
+
+    encoded = json.dumps(field_plan_payload(), ensure_ascii=False)
+    assert json.loads(encoded)["class"] == "ManagedServicesContract"
 
 
 def test_local_extractor_reads_every_key_field() -> None:

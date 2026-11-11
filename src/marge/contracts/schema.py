@@ -67,15 +67,44 @@ FIELD_HINTS: tuple[FieldPlanEntry, ...] = (
 )
 
 
+BLUEPRINT_CLASS = "ManagedServicesContract"
+BLUEPRINT_DESCRIPTION = (
+    "A managed services contract between an IT services provider (the MSP) and "
+    "its client. It states the monthly subscription, the hours included, the "
+    "hourly rate beyond the quota, the services covered, the exclusions that "
+    "delimit the scope, the service level commitments and the renewal terms."
+)
+
+# Le schéma d'un blueprint Bedrock Data Automation est un document de type
+# JSON-Schema : une `class`, une `description`, et `properties` qui associent un
+# nom de champ en UPPER_SNAKE à {type, inferenceType, instruction}. Format lu
+# depuis le blueprint public `bedrock-data-automation-public-invoice` le
+# 2026-11-11 : la charge `{"fields": {...}}` est refusée par l'API avec
+# « Request has invalid blueprint schema ». Les dates et les montants restent
+# des chaînes, converties par ce module : aucun chiffre n'est interprété par le
+# modèle (ENF-IA-01).
+_BDA_TYPES = {"text": "string", "date": "string", "money": "string", "number": "number", "list": "array"}
+
+
+def blueprint_schema() -> dict[str, Any]:
+    """The Annex B field plan as a Bedrock Data Automation blueprint schema."""
+    properties: dict[str, Any] = {}
+    for entry in FIELD_HINTS:
+        field_type = _BDA_TYPES[entry.kind]
+        spec: dict[str, Any] = {
+            "type": field_type,
+            "inferenceType": "explicit",
+            "instruction": entry.hint,
+        }
+        if field_type == "array":
+            spec["items"] = {"type": "string"}
+        properties[entry.name.upper()] = spec
+    return {"class": BLUEPRINT_CLASS, "description": BLUEPRINT_DESCRIPTION, "properties": properties}
+
+
 def field_plan_payload() -> dict[str, Any]:
-    """The plan as Bedrock Data Automation expects it (JSON)."""
-    return {
-        "name": "marge-contract-fields-v1",
-        "documentType": "CONTRACT",
-        "fields": [
-            {"name": entry.name, "type": entry.kind, "instruction": entry.hint} for entry in FIELD_HINTS
-        ],
-    }
+    """Alias kept for the callers written before the schema was corrected."""
+    return blueprint_schema()
 
 
 def parse_money(raw: object) -> Decimal:
