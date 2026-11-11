@@ -275,7 +275,6 @@ class PortalStack(MargeStack):
         URLs are the CloudFront domain, so the token comes back to the very page
         that called the API (idea 61).
         """
-        base = f"https://{self.distribution.distribution_domain_name}"
         self.user_pool.add_domain(
             "PortalDomain",
             cognito_domain=cognito.CognitoDomainOptions(domain_prefix=f"{self.qualifier}-auth"),
@@ -285,12 +284,11 @@ class PortalStack(MargeStack):
             user_pool_client_name=f"{self.qualifier}-portal",
             generate_secret=False,
             auth_flows=cognito.AuthFlow(user_password=True),
-            o_auth=cognito.OAuthSettings(
-                flows=cognito.OAuthFlows(implicit_code_grant=True),
-                scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-                callback_urls=[f"{base}/", f"{base}/index.html"],
-                logout_urls=[f"{base}/", f"{base}/index.html"],
-            ),
+            # Les URLs de rappel NE SONT PAS posées ici : elles dépendent du
+            # nom CloudFront, qui dépend de l'API, qui dépend de la Lambda, qui
+            # dépend de l'id du client — un cycle CloudFormation. Elles sont
+            # posées après le déploiement par scripts/cognito-callbacks.sh
+            # (une commande, idempotente, documentée dans docs/RUNBOOK.md).
             supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO],
             access_token_validity=Duration.minutes(60),
             id_token_validity=Duration.minutes(60),
@@ -324,18 +322,18 @@ class PortalStack(MargeStack):
 
 
 def _default_method_options(auth_mode: str, pool: Any) -> apigw.MethodOptions:
-    """Method options shared by every route: authorization per mode.
+    """Method options shared by every route.
 
-    ``dev`` leaves the API open and the identity comes from the
-    ``X-Actor-Id``/``X-Actor-Role`` headers, which is what the demo accounts of
-    EF-ADM-03 need. ``cognito`` requires a signed token from the user pool.
+    No API Gateway authorizer, in either mode: the RS256 verification lives in
+    the application (``marge.api.cognito_jwks``), which is one implementation
+    instead of two, and it keeps ``GET /v1/auth/config`` reachable — the static
+    portal needs it to learn how to sign in, before it has any token. An
+    authorizer at the gateway would answer ``{"message": "Unauthorized"}`` to
+    that very request (observed on the deployed portal, 2026-11-11).
+
+    ``auth_mode`` still selects the behaviour, through ``MARGE_AUTH_MODE``:
+    ``dev`` reads the identity from the X-Actor-* headers (demo accounts,
+    EF-ADM-03), ``cognito`` requires a signed token from ``pool``.
     """
-    if auth_mode != "cognito":
-        return apigw.MethodOptions()
-    authorizer = apigw.CognitoUserPoolsAuthorizer(
-        pool.stack,
-        "PortalDefaultAuthorizer",
-        cognito_user_pools=[pool],
-        authorizer_name="portal-cognito",
-    )
-    return apigw.MethodOptions(authorization_type=apigw.AuthorizationType.COGNITO, authorizer=authorizer)
+    _ = (auth_mode, pool)
+    return apigw.MethodOptions()

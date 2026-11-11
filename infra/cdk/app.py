@@ -34,20 +34,30 @@ from quicksight import QuickSightStack
 __all__ = ["build_app", "main"]
 
 
-def build_app(context: dict[str, str] | None = None) -> App:
-    """Build the CDK application with the seven stacks of the project."""
-    env_name = (context or {}).get("ENVIRONMENT", os.environ.get("ENVIRONMENT", "dev"))
-    app = App(context=context, outdir=os.environ.get("CDK_OUTDIR", "cdk.out"))
-    env = Environment(
+def _environment() -> Environment:
+    """Deployment environment.
+
+    ``eu-west-3`` (Paris) offers neither Bedrock Data Automation nor Bedrock
+    Agents — ``cdk synth`` says so. ``eu-west-1`` (Ireland) has Quick Sight,
+    Bedrock runtime, Bedrock Data Automation and Agents together, which is the
+    reference region of the project (spec chapter 24, point 2).
+    """
+    return Environment(
         account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
-        # eu-west-3 (Paris) ne propose ni Bedrock Data Automation ni les agents
-        # Bedrock : `cdk synth` le signale. eu-west-1 (Irlande) réunit Quick
-        # Sight, Bedrock runtime, Bedrock Data Automation et Agents — c'est la
-        # région de référence du projet (point 2 du chapitre 24 de la spec).
         region=os.environ.get("CDK_DEFAULT_REGION", "eu-west-1"),
     )
+
+
+def _build_stacks(app: App, env_name: str, env: Environment) -> None:
+    """Instantiate the seven stacks and their ordering."""
     data_lake = DataLakeStack(app, "MargeDataLake", environment=env_name, env=env)
-    portal = PortalStack(app, "MargePortal", environment=env_name, env=env)
+    portal = PortalStack(
+        app,
+        "MargePortal",
+        environment=env_name,
+        env=env,
+        auth_mode=os.environ.get("MARGE_AUTH_MODE", "dev"),
+    )
     contracts_ai = ContractsAiStack(
         app,
         "MargeContractsAi",
@@ -78,6 +88,18 @@ def build_app(context: dict[str, str] | None = None) -> App:
     portal.node.add_dependency(data_lake)
     orchestration.node.add_dependency(portal)
     orchestration.node.add_dependency(observability)
+
+
+def build_app(context: dict[str, str] | None = None) -> App:
+    """Build the CDK application with the seven stacks of the project.
+
+    ``MARGE_AUTH_MODE`` selects the portal identity: ``dev`` reads the actor from
+    request headers (demo accounts, EF-ADM-03), ``cognito`` requires a signed
+    token verified against the pool JWKS.
+    """
+    env_name = (context or {}).get("ENVIRONMENT", os.environ.get("ENVIRONMENT", "dev"))
+    app = App(context=context, outdir=os.environ.get("CDK_OUTDIR", "cdk.out"))
+    _build_stacks(app, env_name, _environment())
     return app
 
 

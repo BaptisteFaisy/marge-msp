@@ -14,19 +14,21 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from fastapi import APIRouter, Depends
-
-from .auth import AuthMode
-from .deps import ApiContext, get_context
+from fastapi import APIRouter, Request
 
 router = APIRouter(prefix="/v1")
 
 
 @router.get("/auth/config")
-def auth_config(ctx: ApiContext = Depends(get_context)) -> dict[str, Any]:
-    """How the portal should authenticate its user."""
-    mode = ctx.auth_mode.value if isinstance(ctx.auth_mode, AuthMode) else str(ctx.auth_mode)
-    if mode != AuthMode.COGNITO.value:
+def auth_config(request: Request) -> dict[str, Any]:
+    """How the portal should authenticate its user.
+
+    Deliberately public: it is bootstrap metadata for a static page that cannot
+    know its own deployment, and it carries no secret — an implicit-flow client
+    id is public by design. Everything else under ``/v1`` stays authenticated.
+    """
+    mode = str(request.app.state.auth_mode.value)
+    if mode != "cognito":
         return {"mode": mode, "cognito": None}
     return {
         "mode": mode,
