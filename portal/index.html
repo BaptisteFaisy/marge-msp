@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marge — Validation Portal</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="demo-banner">DEMO — synthetic data only. No real client information.</div>
+
+  <header class="topbar">
+    <h1>Marge <span class="subtitle">validation portal</span></h1>
+    <div class="actor-box">
+      <label for="actor-id">Actor id</label>
+      <input id="actor-id" type="text" value="controller-01" autocomplete="off">
+      <label for="actor-role">Role</label>
+      <select id="actor-role">
+        <option value="EXECUTIVE">EXECUTIVE</option>
+        <option value="OPERATIONS_DIRECTOR">OPERATIONS_DIRECTOR</option>
+        <option value="ACCOUNT_MANAGER">ACCOUNT_MANAGER</option>
+        <option value="CONTROLLER" selected>CONTROLLER</option>
+        <option value="ADMINISTRATOR">ADMINISTRATOR</option>
+      </select>
+      <label for="api-base">API</label>
+      <input id="api-base" type="text" value="http://localhost:8000" autocomplete="off">
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-screen="matches" role="tab">Matches</button>
+    <button class="tab" data-screen="contracts" role="tab">Contracts</button>
+    <button class="tab" data-screen="classifications" role="tab">Classifications</button>
+  </nav>
+
+  <main>
+    <section id="screen-matches" class="screen active">
+      <h2>Client identity matches (EF-REF-01)</h2>
+      <p class="hint">The model proposes, a human decides. Nothing is used by the calculation before approval.</p>
+      <div id="matches-list" class="content"></div>
+    </section>
+
+    <section id="screen-contracts" class="screen">
+      <h2>Contracts and extracted clauses (EF-CTR-02)</h2>
+      <p class="hint">Each extracted field is shown next to the passage of the contract it comes from.</p>
+      <div id="contracts-list" class="content"></div>
+      <div id="contract-detail" class="content"></div>
+    </section>
+
+    <section id="screen-classifications" class="screen">
+      <h2>Work classifications to review (EF-CLS-03)</h2>
+      <p class="hint">Out-of-scope and uncertain classifications wait for the account manager's decision.</p>
+      <div id="classifications-list" class="content"></div>
+    </section>
+  </main>
+
+  <footer class="statusbar"><span id="status"></span></footer>
+  <script src="app.js"></script>
+</body>
+</html>
