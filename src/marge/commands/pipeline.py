@@ -14,17 +14,23 @@ def _store(path: str):
 
 
 def _classifier(store, settings):
-    """Wire the real classifier (Bedrock) or fall back to the local rules."""
+    """Wire the real classifier (Bedrock) or fall back to the local rules.
+
+    Every call goes through ``logged_classifier``: the store keeps one row per
+    invocation with the model, the latency, the tokens, the estimated cost and
+    the class produced, so the AI steps stay auditable (idea 18).
+    """
     from marge.classify.memory import DecisionMemory
     from marge.classify.service import classify
+    from marge.llmlog import logged_classifier
 
     memory = DecisionMemory(store)
+    model = _model()
 
-    def run(intervention, contract):
-        model = _model()
+    def plain(intervention, contract):
         return classify(intervention, contract, model, settings, memory=memory)
 
-    return run
+    return logged_classifier(plain, store, purpose="classify", model=model)
 
 
 def _model():

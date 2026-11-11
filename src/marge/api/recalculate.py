@@ -10,6 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from ..calc import (
+    CalcVersion,
     MarginInputs,
     compute_effort_slices,
     compute_hours_summary,
@@ -109,14 +110,40 @@ def run_recalculate(
     store.save_margin_months(margin_rows)
     store.save_effort_slices(effort_rows)
     store.save_hours_summaries(hours_rows)
+    _record_version(store, calc_version, month, client_id, actor, reason, len(margin_rows))
+    return len(margin_rows), calc_version
+
+
+def _record_version(
+    store: Store,
+    calc_version: int,
+    month: Month,
+    client_id: str | None,
+    actor: Actor,
+    reason: str,
+    clients: int,
+) -> None:
+    """Open a dated, signed and motivated calculation version (EF-CAL-03).
+
+    The past is never rewritten silently: the version row carries who asked,
+    why and when, and ``GET /v1/calc-versions/diff`` shows what moved.
+    """
+    scope = f"{month}:{client_id or 'all'}"
+    store.save_calc_version(
+        CalcVersion.open(
+            calc_version,
+            actor.actor_id,
+            reason or "recalculated from the portal",
+            fingerprint=f"{scope}:{clients}",
+        )
+    )
     store.append(
         AuditEntry.now(
             entity_kind="calculation",
-            entity_id=f"{month}:{client_id or 'all'}",
+            entity_id=scope,
             action="recalculate",
             author=actor.actor_id,
             reason=reason,
-            after={"calc_version": calc_version, "clients": len(margin_rows)},
+            after={"calc_version": calc_version, "clients": clients},
         )
     )
-    return len(margin_rows), calc_version

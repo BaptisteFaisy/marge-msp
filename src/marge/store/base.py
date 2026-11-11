@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol
 
+from ..calc.versioning import CalcVersion
 from ..domain import (
     AuditEntry,
     AwsCost,
@@ -25,6 +26,7 @@ from ..domain import (
     HoursSummary,
     Intervention,
     Invoice,
+    LlmCall,
     MarginLine,
     MarginMonth,
     Month,
@@ -96,6 +98,22 @@ class AnalyticsRepository(Protocol):
     def margin_lines(self, client_id: str, month: Month) -> list[MarginLine]: ...
 
 
+class CalcVersionRepository(Protocol):
+    """History of calculation versions (EF-CAL-03, idea 28)."""
+
+    def save_calc_version(self, version: CalcVersion) -> None: ...
+    def list_calc_versions(self) -> list[CalcVersion]: ...
+
+
+class LlmLogRepository(Protocol):
+    """Append-only log of model calls (idea 18, ENF-IA-01..03)."""
+
+    def append_llm_call(self, call: LlmCall) -> None: ...
+    def list_llm_calls(
+        self, purpose: str | None = None, client_id: str | None = None, model_id: str | None = None
+    ) -> list[LlmCall]: ...
+
+
 class AuditRepository(Protocol):
     def append(self, entry: AuditEntry) -> None: ...
     def list_entries(
@@ -116,6 +134,8 @@ class Store(
     CostRepository,
     AnalyticsRepository,
     AuditRepository,
+    CalcVersionRepository,
+    LlmLogRepository,
     SettingsRepository,
     Protocol,
 ):

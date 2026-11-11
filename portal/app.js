@@ -22,6 +22,10 @@ function apiBase() {
 }
 
 function authHeaders() {
+  /* Cognito mode: the API reads the identity from the verified token.
+   * Dev mode: the identity comes from the two headers below. */
+  const token = typeof bearerToken === "function" ? bearerToken() : "";
+  if (token) return { Authorization: "Bearer " + token };
   return {
     "X-Actor-Id": $("actor-id").value || "anonymous",
     "X-Actor-Role": $("actor-role").value,
@@ -318,4 +322,6 @@ $("actor-id").addEventListener("change", refresh);
 const urlApi = new URLSearchParams(window.location.search).get("api");
 $("api-base").value = urlApi !== null ? urlApi : defaultApiBase();
 
-showScreen("matches");
+initAuth()
+  .catch(() => setStatus("auth config unavailable: dev mode"))
+  .then(() => showScreen("matches"));

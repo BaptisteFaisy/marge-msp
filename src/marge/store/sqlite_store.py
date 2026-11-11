@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ..calc.versioning import CalcVersion
 from ..domain import (
     AuditEntry,
     AwsCost,
@@ -28,6 +29,7 @@ from ..domain import (
     HoursSummary,
     Intervention,
     Invoice,
+    LlmCall,
     MarginLine,
     MarginMonth,
     Month,
@@ -58,6 +60,7 @@ TABLE_OF = {
     "renewal_watch": RenewalWatch,
     "margin_lines": MarginLine,
     "audit": AuditEntry,
+    "llm_calls": LlmCall,
 }
 
 
@@ -350,6 +353,31 @@ class SqliteStore:
             rows = [e for e in rows if e.entity_kind == entity_kind]
         if entity_id:
             rows = [e for e in rows if e.entity_id == entity_id]
+        return rows
+
+    # ------------------------------------------------------- calc versions
+    def save_calc_version(self, version: CalcVersion) -> None:
+        self._put("calc_versions", str(version.version), version)
+
+    def list_calc_versions(self) -> list[CalcVersion]:
+        rows = self._rows("calc_versions", CalcVersion)
+        return sorted(rows, key=lambda v: v.version)
+
+    # ------------------------------------------------------------- llm log
+    def append_llm_call(self, call: LlmCall) -> None:
+        key = f"{call.at.isoformat()}:{call.purpose}:{call.entity_id}:{uuid4().hex}"
+        self._put("llm_calls", key, call)
+
+    def list_llm_calls(
+        self, purpose: str | None = None, client_id: str | None = None, model_id: str | None = None
+    ) -> list[LlmCall]:
+        rows = self._rows("llm_calls", LlmCall)
+        if purpose:
+            rows = [c for c in rows if c.purpose == purpose]
+        if client_id:
+            rows = [c for c in rows if c.client_id == client_id]
+        if model_id:
+            rows = [c for c in rows if c.model_id == model_id]
         return rows
 
     # -------------------------------------------------------------- settings

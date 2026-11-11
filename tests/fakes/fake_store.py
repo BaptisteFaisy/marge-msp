@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from marge.calc.versioning import CalcVersion
 from marge.domain import (
     AuditEntry,
     AwsCost,
@@ -20,6 +21,7 @@ from marge.domain import (
     HoursSummary,
     Intervention,
     Invoice,
+    LlmCall,
     MarginLine,
     MarginMonth,
     Month,
@@ -61,6 +63,8 @@ class FakeStore:
         self.renewal_watch: list[RenewalWatch] = []
         self.lines: dict[tuple[str, Month], list[MarginLine]] = {}
         self.audit: list[AuditEntry] = []
+        self.llm_calls: list[LlmCall] = []
+        self.calc_versions: list[CalcVersion] = []
         self.settings = Settings()
         self.calls: list[str] = []
 
@@ -281,6 +285,30 @@ class FakeStore:
         if entity_id:
             rows = [e for e in rows if e.entity_id == entity_id]
         return list(rows)
+
+    # ------------------------------------------------------- calc versions
+    def save_calc_version(self, version: CalcVersion) -> None:
+        self.calc_versions = [v for v in self.calc_versions if v.version != version.version]
+        self.calc_versions.append(version)
+
+    def list_calc_versions(self) -> list[CalcVersion]:
+        return sorted(self.calc_versions, key=lambda v: v.version)
+
+    # ------------------------------------------------------------- llm log
+    def append_llm_call(self, call: LlmCall) -> None:
+        self.llm_calls.append(call)
+
+    def list_llm_calls(
+        self, purpose: str | None = None, client_id: str | None = None, model_id: str | None = None
+    ) -> list[LlmCall]:
+        rows = list(self.llm_calls)
+        if purpose:
+            rows = [c for c in rows if c.purpose == purpose]
+        if client_id:
+            rows = [c for c in rows if c.client_id == client_id]
+        if model_id:
+            rows = [c for c in rows if c.model_id == model_id]
+        return rows
 
     # -------------------------------------------------------------- settings
     def load(self) -> Settings:

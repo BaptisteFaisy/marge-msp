@@ -41,19 +41,39 @@ class AuthMode(StrEnum):
 class CognitoConfig:
     """Verification material for the Cognito mode.
 
-    ``jwks`` maps a key id to its raw HMAC secret (demo/HS256) or public key.
-    When it is empty, Cognito mode refuses every token instead of pretending to
-    verify a signature it cannot check.
+    Two verification paths:
+
+    * ``issuer`` set — the real one. The Hosted UI issues RS256 tokens signed by
+      the user pool; ``marge.api.cognito_jwks`` fetches the pool JWKS and
+      verifies the signature with the standard library only.
+    * ``jwks`` set — HS256 with a shared secret, kept for the tests.
+
+    When neither is configured, Cognito mode refuses every token instead of
+    pretending to verify a signature it cannot check (spec 17).
     """
 
     user_pool_id: str = ""
     client_id: str = ""
+    issuer: str = ""
     jwks: Mapping[str, str] | None = None
     leeway_seconds: int = 60
 
     @property
     def can_verify(self) -> bool:
-        return bool(self.jwks)
+        """True when a real verification path is configured.
+
+        A user pool id is enough: the issuer URL derives from it. Without
+        either an issuer or an HS256 key set, every token is refused.
+        """
+        return bool(self.issuer_url) or bool(self.jwks)
+
+    @property
+    def issuer_url(self) -> str:
+        """The Cognito issuer URL, built from the pool id when not given."""
+        if self.issuer:
+            return self.issuer
+        region, _, pool = self.user_pool_id.partition("_")
+        return f"https://cognito-idp.{region}.amazonaws.com/{self.user_pool_id}" if pool else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -205,6 +225,22 @@ def resolve_actor(
     token = authorization.split(" ", 1)[1].strip()
     if not token:
         raise AuthError(401, "empty bearer token")
+    if config.issuer_url:
+        return _actor_from_rs256(token, config)
     _verify_signature(token, config)
     claims = _decode_segment(token.split(".")[1])
+    return _actor_from_claims(claims, config)
+
+
+def _actor_from_rs256(token: str, config: CognitoConfig) -> Actor:
+    """Verify an RS256 token against the pool JWKS, then map its claims."""
+    from .cognito_jwks import TokenError, verify_token
+
+    try:
+        claims = verify_token(token, issuer=config.issuer_url, audience=config.client_id)
+    except TokenError as exc:
+        raise AuthError(401, str(exc)) from exc
+    except OSError as exc:
+        # The JWKS endpoint is unreachable: refuse, never fall back to dev mode.
+        raise AuthError(503, f"identity provider unreachable: {exc}") from exc
     return _actor_from_claims(claims, config)

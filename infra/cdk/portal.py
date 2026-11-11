@@ -69,6 +69,12 @@ class PortalStack(MargeStack):
         self.api_function = self._create_api_function()
         self.api = self._create_api()
         self.distribution = self._create_distribution()
+        # Le client OAuth a besoin du nom CloudFront pour ses URLs de rappel, et
+        # la Lambda a besoin de l'id du client pour vérifier l'audience du jeton.
+        # `add_environment` casse le cycle : la valeur est un jeton CloudFormation
+        # résolu au déploiement, l'ordre de création des constructs n'importe plus.
+        self.oauth_client = self._create_oauth_client()
+        self.api_function.add_environment("MARGE_COGNITO_CLIENT_ID", self.oauth_client.user_pool_client_id)
         self._deploy_site()
         self._outputs()
 
@@ -162,6 +168,12 @@ class PortalStack(MargeStack):
                 # requête sans clé de vérification configurée (spec 17).
                 "MARGE_AUTH_MODE": self.auth_mode,
                 "MARGE_PORTAL_DIR": "/var/task/portal",
+                # Lus par GET /v1/auth/config : le portail statique ne peut pas
+                # connaître le client id au build sans figer un environnement.
+                "MARGE_COGNITO_ISSUER": (
+                    f"https://cognito-idp.{self.region}.amazonaws.com/{self.user_pool.user_pool_id}"
+                ),
+                "MARGE_COGNITO_DOMAIN": f"{self.qualifier}-auth.auth.{self.region}.amazoncognito.com",
                 "READ_ONLY_ROLES": "EXECUTIVE,OPERATIONS_DIRECTOR",
             },
             description="Validation portal API: matches, contracts, classifications, rates.",
@@ -255,6 +267,35 @@ class PortalStack(MargeStack):
             viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         )
 
+    def _create_oauth_client(self) -> cognito.UserPoolClient:
+        """Hosted UI client: the portal signs the judges in, the API verifies.
+
+        Implicit flow with an id token, because the portal is a static page with
+        no backend of its own to hold a client secret. The callback and logout
+        URLs are the CloudFront domain, so the token comes back to the very page
+        that called the API (idea 61).
+        """
+        base = f"https://{self.distribution.distribution_domain_name}"
+        self.user_pool.add_domain(
+            "PortalDomain",
+            cognito_domain=cognito.CognitoDomainOptions(domain_prefix=f"{self.qualifier}-auth"),
+        )
+        return self.user_pool.add_client(
+            "PortalOAuthClient",
+            user_pool_client_name=f"{self.qualifier}-portal",
+            generate_secret=False,
+            auth_flows=cognito.AuthFlow(user_password=True),
+            o_auth=cognito.OAuthSettings(
+                flows=cognito.OAuthFlows(implicit_code_grant=True),
+                scopes=[cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+                callback_urls=[f"{base}/", f"{base}/index.html"],
+                logout_urls=[f"{base}/", f"{base}/index.html"],
+            ),
+            supported_identity_providers=[cognito.UserPoolClientIdentityProvider.COGNITO],
+            access_token_validity=Duration.minutes(60),
+            id_token_validity=Duration.minutes(60),
+        )
+
     def _outputs(self) -> None:
         """Expose the URLs the demo needs."""
         CfnOutput(self, "PortalUrl", value=f"https://{self.distribution.distribution_domain_name}")
@@ -266,8 +307,19 @@ class PortalStack(MargeStack):
         CfnOutput(self, "ApiUrl", value=self.api.url)
         CfnOutput(self, "ValidationTableName", value=self.table.table_name)
         CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id)
+        CfnOutput(self, "UserPoolClientId", value=self.oauth_client.user_pool_client_id)
         CfnOutput(
-            self, "UserPoolClientId", value=self.user_pool.add_client("portal-client").user_pool_client_id
+            self,
+            "CognitoIssuer",
+            value=f"https://cognito-idp.{self.region}.amazonaws.com/{self.user_pool.user_pool_id}",
+        )
+        CfnOutput(
+            self,
+            "HostedUiUrl",
+            value=f"https://{self.qualifier}-auth.auth.{self.region}.amazoncognito.com/login"
+            f"?client_id={self.oauth_client.user_pool_client_id}"
+            f"&response_type=token&scope=openid+email+profile"
+            f"&redirect_uri=https://{self.distribution.distribution_domain_name}/",
         )
 
 

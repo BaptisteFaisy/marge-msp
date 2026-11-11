@@ -15,11 +15,12 @@ from .margin import compute_margin_month
 from .rates import rate_in_force
 from .renewal import build_renewal_watch, six_month_margin_rate, trend_of
 from .trace import margin_lines
-from .versioning import CalcVersion, VersionHistory
+from .versioning import CalcVersion, MarginDiff, VersionHistory, diff_versions, summarise_diff
 
 __all__ = [
     "AllocationContext",
     "CalcVersion",
+    "MarginDiff",
     "MarginInputs",
     "VersionHistory",
     "allocate_tooling",
@@ -28,8 +29,10 @@ __all__ = [
     "compute_effort_slices",
     "compute_hours_summary",
     "compute_margin_month",
+    "diff_versions",
     "margin_lines",
     "rate_in_force",
     "six_month_margin_rate",
+    "summarise_diff",
     "trend_of",
 ]
