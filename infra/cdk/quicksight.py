@@ -15,12 +15,14 @@ from typing import Any
 
 from aws_cdk import CfnOutput, Duration
 from aws_cdk import aws_iam as iam
-from common import MargeStack, secure_bucket
+from common import MargeStack, analytical_query_statements, secure_bucket
 
 __all__ = ["QuickSightStack"]
 
-_ATHENA_ACCESS = iam.ManagedPolicy.from_aws_managed_policy_name("AmazonQuickSightAthenaAccess")
-_SPACIAL_ACCESS = iam.ManagedPolicy.from_aws_managed_policy_name("AmazonQuickSightSpatialAccess")
+# AmazonQuickSightAthenaAccess et AmazonQuickSightSpatialAccess n'existent plus
+# (retirées par AWS) : les droits de requête sont écrits au moindre privilège
+# dans common.analytical_query_statements(), une seule implémentation partagée
+# avec le rôle Athena du lac de données.
 
 
 class QuickSightStack(MargeStack):
@@ -48,7 +50,7 @@ class QuickSightStack(MargeStack):
             "QuickSightRole",
             service="quicksight.amazonaws.com",
             description="Reads the curated zone for the five analytical datasets.",
-            managed_policies=[_ATHENA_ACCESS, _SPACIAL_ACCESS],
+            statements=analytical_query_statements(self.curated_bucket_name),
         )
         if self.curated_bucket_name:
             role.add_to_policy(
