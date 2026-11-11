@@ -17,7 +17,7 @@ from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_cognito as cognito
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from common import MargeStack, python_inline, secure_bucket
+from common import MargeStack, lambda_package, secure_bucket
 
 __all__ = ["PortalStack"]
 
@@ -29,19 +29,6 @@ ROLES: dict[str, str] = {
     "ADMINISTRATOR": "Administrator",
 }
 """The five roles of spec 6, one Cognito group each."""
-
-_API_BODY = """
-import json
-
-
-def handler(event, context):
-    \"\"\"Placeholder: the real API lives in ``marge.api``.\"\"\"
-    return {
-        "statusCode": 200,
-        "headers": {"content-type": "application/json"},
-        "body": json.dumps({"routes": ["/v1/matches", "/v1/contracts", "/v1/classifications"]}),
-    }
-"""
 
 
 class PortalStack(MargeStack):
@@ -114,13 +101,16 @@ class PortalStack(MargeStack):
             self,
             "PortalApiFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="index.handler",
-            code=python_inline(_API_BODY),
+            handler="marge.lambdas.handlers.portal_handler",
+            code=lambda_package("portal"),
             timeout=Duration.seconds(30),
             memory_size=1024,
             role=self.api_role,
             environment={
-                "TABLE_NAME": self.table_name,
+                "MARGE_TABLE": self.table_name,
+                "MARGE_REGION": self.region,
+                "MARGE_AUTH_MODE": "cognito",
+                "MARGE_PORTAL_DIR": "/var/task/portal",
                 "READ_ONLY_ROLES": "EXECUTIVE,OPERATIONS_DIRECTOR",
             },
             description="Validation portal API: matches, contracts, classifications, rates.",

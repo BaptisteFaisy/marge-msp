@@ -23,6 +23,8 @@ data/generated/
 
 # AWS / CDK
 cdk.out/
+infra/cdk/.build/
+.build/
 .cdk.staging/
 infra/quicksight-assets/*.generated.json
 
