@@ -45,12 +45,16 @@ def classify_pending(
     settings: Settings,  # noqa: ARG001 - part of the stable pipeline signature
     month: Month,
     classifier: Classifier | None,
+    limit: int | None = None,
 ) -> tuple[int, int, int]:
     """Classify every intervention of the month that has no classification yet.
 
     Returns ``(classified, reused_decisions, queued_for_validation)``.
     An intervention whose client has no validated contract is left alone: it
     will be classified once a human validates the contract (EF-CTR-03).
+
+    ``limit`` bounds one pass, so a Lambda invocation stays inside its window:
+    the caller re-invokes until the report says nothing was classified.
     """
     if classifier is None:
         return (0, 0, 0)
@@ -67,6 +71,8 @@ def classify_pending(
         classified += 1
         reused += int(result.decided_by_memory)
         queued += int(result.needs_human_validation and result.status == DecisionStatus.PENDING)
+        if limit is not None and classified >= limit:
+            break
     return (classified, reused, queued)
 
 
