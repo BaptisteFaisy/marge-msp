@@ -19,9 +19,12 @@ permissions:
   pull-requests: write
   checks: write
 
+# Groupe PAR PR et sans annulation : avec un groupe par depot, les runs
+# declenchees par `check_run` (Mergify) annulent la run `pull_request`, et un
+# check annule compte rouge pour la file (lecon sam-vision PR #51).
 concurrency:
-  group: hermes-lite-${{ github.repository }}
-  cancel-in-progress: true
+  group: hermes-lite-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 
 env:
   GH_TOKEN: ${{ secrets.HERMES_LITE_TOKEN || github.token }}
