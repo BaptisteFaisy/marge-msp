@@ -23,6 +23,29 @@ An MSP sells fixed-price managed-service contracts while real effort varies enor
 
 Full detail: [HLD](docs/HLD.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [DECISIONS](docs/DECISIONS.md) · [RUNBOOK](docs/RUNBOOK.md).
 
+## Public demo — accessible to all
+
+The validation portal is live and open to everyone (fictional data only):
+
+| Where | URL |
+|---|---|
+| **Production demo** (CloudFront, UI + API on one origin) | https://d3n1e2aqabg966.cloudfront.net |
+| **GitHub Pages mirror** (static site of this repo) | https://baptistefaisy.github.io/marge-msp/ |
+
+Demo identities (Cognito, one per role of spec 6):
+
+| Login | Password | Role |
+|---|---|---|
+| controller-01@marge.demo | `MargeDemo2026!` | CONTROLLER |
+| am-01@marge.demo | `MargeDemo2026!` | ACCOUNT_MANAGER |
+| director-01@marge.demo | `MargeDemo2026!` | EXECUTIVE |
+| ops-01@marge.demo | `MargeDemo2026!` | OPERATIONS_DIRECTOR |
+| admin-01@marge.demo | `MargeDemo2026!` | ADMINISTRATOR |
+
+An account manager sees only their own clients and never an hourly cost; the
+controller sees every client and the per-level rates. The GitLab Pages mirror
+cross-calls the CloudFront API, so both URLs serve the same live data.
+
 ## Quick start
 
 ```bash
@@ -33,7 +56,7 @@ make smoke       # recompute the Annex D golden case offline — no AWS, no cred
 
 `make smoke` prints and asserts the reference figures (revenue 4 620 €, cost 3 725 €, margin 895 € = 19.4 %, 9 h × 110 € = 990 €). `make test` runs the offline suite, `make lint` and `make limits` are what CI runs.
 
-The full local walk-through — `generate` → `load` → `match` → `contracts` → `classify` → `compute` → `portal` → `review` → `mcp`, i.e. `make demo` — is wired by the pipeline, portal, MCP and data-generator modules; each of those commands is registered under `src/marge/commands/` as its module lands. **In this branch the CLI exposes `smoke` and `version` only**; [TEST-INSTRUCTIONS.md](docs/TEST-INSTRUCTIONS.md) §1 states, command by command, what runs today and what arrives with the remaining modules.
+The full local walk-through — `generate` → `load` → `match` → `contracts` → `classify` → `compute` → `portal` → `review` → `mcp`, i.e. `make demo` — is wired by the pipeline, portal, MCP and data-generator modules; each of those commands is registered under `src/marge/commands/`; run `python3 -m marge.cli --help` for the full list (`smoke`, `generate`, `eval`, `demo`, `serve`, `mcp`, `nightly`, `weekly`, `monthly`, `publish`, `assets`, `model-compare`, …).
 
 Step-by-step demo and judge credentials: [docs/TEST-INSTRUCTIONS.md](docs/TEST-INSTRUCTIONS.md).
 
