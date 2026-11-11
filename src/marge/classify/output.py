@@ -2,7 +2,9 @@
 
 ``billableHours`` is copied from the recorded duration by code, never produced
 by the model (Annex C note). Any output that is not exactly the expected
-shape is rejected rather than guessed.
+shape is rejected rather than guessed, and an answer that tries to change the
+task is rejected too (ENF-IA-03) — the detection table it uses is the one of
+:mod:`marge.classify.injection`, shared with the ticket counter of idea 19.
 """
 
 from __future__ import annotations
@@ -12,16 +14,9 @@ import re
 from decimal import Decimal, InvalidOperation
 
 from ..domain import Classification, DecisionStatus, Intervention, WorkClass
+from .injection import scan_answer
 
 VALID_CLASSES = {cls.value: cls for cls in WorkClass}
-INJECTION_MARKERS = (
-    "ignore previous",
-    "ignore the above",
-    "system:",
-    "you are now",
-    "nouvelles instructions",
-    "oublie les instructions",
-)
 
 
 class InvalidModelOutput(ValueError):
@@ -47,8 +42,14 @@ def extract_json(raw: str) -> dict:
 
 
 def _looks_like_injection(payload: dict) -> bool:
-    blob = json.dumps(payload, ensure_ascii=False).lower()
-    return any(marker in blob for marker in INJECTION_MARKERS)
+    """True when the answer tries to change the task (ENF-IA-03).
+
+    The detection table lives in :mod:`marge.classify.injection`: the ticket
+    counter (idea 19) and this answer check share one implementation, so the
+    two can never disagree on what an attempt looks like.
+    """
+    blob = json.dumps(payload, ensure_ascii=False)
+    return scan_answer(blob).detected
 
 
 def _confidence(payload: dict) -> Decimal:

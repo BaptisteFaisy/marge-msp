@@ -1,13 +1,18 @@
 """The classification step itself (spec 13.2, EF-CLS-01..05).
 
-Three rules carry the whole design:
+Four rules carry the whole design:
 
 1. prudence: a doubtful case is ``UNCERTAIN``, never ``OUT_OF_SCOPE``;
 2. the 15 minute floor: short out-of-scope work is counted but not queued;
-3. memory: a human decision on a category is reused for that contract.
+3. memory: a human decision on a category is reused for that contract;
+4. the injection guard (ENF-IA-03, idea 19): an attempt detected in the ticket
+   is counted, traced in ``reason``, and lowers an ``IN_SCOPE`` answer to
+   ``UNCERTAIN`` — never the other way round.
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 from ..domain import (
     Classification,
@@ -17,6 +22,7 @@ from ..domain import (
     Settings,
     WorkClass,
 )
+from .injection import InjectionReport, scan_intervention
 from .memory import DecisionMemory
 from .output import InvalidModelOutput, parse_model_output
 from .prompt import OUTPUT_SCHEMA, build_prompt
@@ -57,6 +63,31 @@ def _uncertain(intervention: Intervention, contract: Contract, reason: str) -> C
     )
 
 
+def _apply_injection_guard(classification: Classification, report: InjectionReport) -> Classification:
+    """Trace and defuse the injection attempts counted in the ticket (idea 19).
+
+    The fences of :mod:`marge.classify.prompt` already neutralise the attempts;
+    the counter of :mod:`marge.classify.injection` measures them. When at least
+    one attempt is detected:
+
+    1. the model's free text is no longer trusted — ``reason`` becomes the guard
+       marker, so an injected sentence, or an invented amount, cannot travel to
+       the reviewer (ENF-IA-01, ENF-IA-03);
+    2. an ``IN_SCOPE`` answer is lowered to ``UNCERTAIN``: the ticket tried to
+       steer the classifier, so a human decides (spec 13.2 prudence rule);
+    3. a legitimate ``OUT_OF_SCOPE`` is **never** masked: it stays out of scope
+       with its cited clause, because an injection can only try to hide
+       billable work, never to invent it.
+    """
+    if not report.detected:
+        return classification
+    classification.reason = report.marker()
+    if classification.work_class == WorkClass.INCLUDED:
+        classification.work_class = WorkClass.UNCERTAIN
+        classification.confidence = Decimal("0")
+    return classification
+
+
 def classify(
     intervention: Intervention,
     contract: Contract,
@@ -85,13 +116,16 @@ def classify(
             f"{settings.classification_confidence_threshold}: {classification.reason}"
         )
 
+    attempts = scan_intervention(intervention)
+    classification = _apply_injection_guard(classification, attempts)
+
     if memory is not None:
         reused = memory.apply(classification, contract.contract_id, intervention.category)
         if reused is not None:
             return reused
 
-    classification.needs_human_validation = _needs_validation(
-        classification.work_class, intervention.hours_spent, settings
+    classification.needs_human_validation = (
+        _needs_validation(classification.work_class, intervention.hours_spent, settings) or attempts.detected
     )
     classification.status = DecisionStatus.PENDING
     return classification
