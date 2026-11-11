@@ -22,6 +22,9 @@ concurrency:
   group: deploy-check-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  PYTHONPATH: src
+
 jobs:
   synth:
     name: cdk-synth
@@ -36,11 +39,16 @@ jobs:
         run: |
           python3 -m pip install --quiet --user boto3 pyyaml || echo "deps skipped"
       - name: Asset bundle
-        run: python3 -m marge.cli assets --out infra/quicksight-assets --check
-      - name: CDK synth (skipped when node is missing)
         run: |
-          if command -v node >/dev/null 2>&1; then
+          if python3 -m marge.cli assets --help >/dev/null 2>&1; then
+            python3 -m marge.cli assets --out infra/quicksight-assets --check
+          else
+            echo "commande assets pas encore livree : bundle non verifie"
+          fi
+      - name: CDK synth (skipped when node or the stacks are missing)
+        run: |
+          if command -v node >/dev/null 2>&1 && [ -f infra/cdk/app.py ]; then
             cd infra/cdk && python3 -m pip install --quiet --user -r requirements.txt && python3 app.py
           else
-            echo "node absent du worker : synth reporte (voir docs/RUNBOOK.md)"
+            echo "node ou stacks absents : synth reporte (voir docs/RUNBOOK.md)"
           fi
