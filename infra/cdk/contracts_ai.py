@@ -20,7 +20,7 @@ from aws_cdk import CfnOutput, Duration
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from common import MargeStack, lambda_package
+from common import MargeStack, dynamo_store_statements, lambda_package
 
 # Le plan de champs de l'annexe B vit dans le code applicatif : le CDK l'importe
 # au lieu d'en entretenir une copie, sinon le blueprint et l'extracteur divergent.
@@ -88,6 +88,7 @@ class ContractsAiStack(MargeStack):
         (observed on account 710332178565, 2026-11-11).
         """
         statements = [iam.PolicyStatement(actions=list(_INVOKE_ACTIONS), resources=["*"])]
+        statements += dynamo_store_statements(self.region, self.account, self.table_name)
         statements += self._raw_bucket_statements()
         return self.service_role(
             "BedrockRole",

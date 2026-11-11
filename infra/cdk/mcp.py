@@ -18,7 +18,7 @@ from typing import Any
 from aws_cdk import CfnOutput, CfnResource, Duration
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from common import MargeStack, lambda_package
+from common import MargeStack, dynamo_store_statements, lambda_package
 
 __all__ = ["McpStack"]
 
@@ -50,15 +50,7 @@ class McpStack(MargeStack):
             service="lambda.amazonaws.com",
             description="Serves the three MCP actions of spec 14.3.",
             statements=[
-                iam.PolicyStatement(
-                    actions=[
-                        "dynamodb:GetItem",
-                        "dynamodb:Query",
-                        "dynamodb:PutItem",
-                        "dynamodb:UpdateItem",
-                    ],
-                    resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{self.table_name}"],
-                ),
+                *dynamo_store_statements(self.region, self.account, self.table_name),
                 iam.PolicyStatement(
                     actions=["execute-api:Invoke"],
                     resources=[f"arn:aws:execute-api:{self.region}:{self.account}:*/*/*/*"],

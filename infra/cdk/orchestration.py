@@ -21,7 +21,7 @@ from aws_cdk import aws_scheduler as scheduler
 from aws_cdk import aws_sns as sns
 from aws_cdk import aws_stepfunctions as sfn
 from aws_cdk import aws_stepfunctions_tasks as tasks
-from common import MargeStack, lambda_package
+from common import MargeStack, dynamo_store_statements, lambda_package
 
 __all__ = ["OrchestrationStack"]
 
@@ -69,6 +69,7 @@ class OrchestrationStack(MargeStack):
             service="lambda.amazonaws.com",
             description="Runs the nightly, weekly and monthly Marge jobs.",
             statements=[
+                *dynamo_store_statements(self.region, self.account, self.table_name),
                 iam.PolicyStatement(
                     actions=[
                         "logs:CreateLogGroup",
@@ -76,17 +77,6 @@ class OrchestrationStack(MargeStack):
                         "logs:PutLogEvents",
                     ],
                     resources=["*"],
-                ),
-                iam.PolicyStatement(
-                    actions=[
-                        "dynamodb:GetItem",
-                        "dynamodb:PutItem",
-                        "dynamodb:UpdateItem",
-                        "dynamodb:Query",
-                        "dynamodb:Scan",
-                        "dynamodb:BatchWriteItem",
-                    ],
-                    resources=[f"arn:aws:dynamodb:{self.region}:{self.account}:table/{self.table_name}*"],
                 ),
                 iam.PolicyStatement(
                     actions=["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
