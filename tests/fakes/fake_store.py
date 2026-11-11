@@ -242,11 +242,16 @@ class FakeStore:
     def set_renewal_watch(self, rows: Sequence[RenewalWatch]) -> None:
         self.renewal_watch = list(rows)
 
+    # Alias used by the pipeline: ``save_*`` is the writer name of the protocol.
+    save_renewal_watch = set_renewal_watch
+
     def margin_lines(self, client_id: str, month: Month) -> list[MarginLine]:
         return self.lines.get((client_id, month), [])
 
     def set_margin_lines(self, client_id: str, month: Month, rows: Sequence[MarginLine]) -> None:
         self.lines[(client_id, month)] = list(rows)
+
+    save_margin_lines = set_margin_lines
 
     # ----------------------------------------------------------------- audit
     def append(self, entry: AuditEntry) -> None:

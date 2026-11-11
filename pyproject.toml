@@ -42,7 +42,7 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RET", "ARG", "RUF"]
 ignore = ["ARG002", "ARG004", "RUF012", "SIM108", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+"tests/**" = ["S101", "ARG001", "ARG002", "ARG004", "ARG005", "SLF001", "PLC0415"]
 "data/generator/**" = ["RUF001"]
 
 [tool.coverage.run]
