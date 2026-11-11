@@ -14,13 +14,14 @@ from aws_cdk import aws_athena as athena
 from aws_cdk import aws_glue as glue
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
-from common import MargeStack, secure_bucket
+from common import MargeStack, analytical_query_statements, secure_bucket
 
 __all__ = ["DataLakeStack"]
 
-_ATHENA_MANAGED = iam.ManagedPolicy.from_aws_managed_policy_name("AmazonAthenaFullAccess")
-_GLUE_MANAGED = iam.ManagedPolicy.from_aws_managed_policy_name("AWSGlueConsoleFullAccess")
-_QUICKSIGHT_ATHENA = iam.ManagedPolicy.from_aws_managed_policy_name("AmazonQuickSightAthenaAccess")
+# Les policies managées AmazonQuickSightAthenaAccess et AmazonQuickSightSpatialAccess
+# ont été retirées par AWS (404 au déploiement) ; AmazonAthenaFullAccess et
+# AWSGlueConsoleFullAccess sont des politiques wildcard contraires à ENF-SEC-01.
+# common.analytical_query_statements() porte désormais ces droits au moindre privilège.
 
 
 class DataLakeStack(MargeStack):
@@ -56,7 +57,7 @@ class DataLakeStack(MargeStack):
             "AthenaRole",
             service="glue.amazonaws.com",
             description="Reads the curated zone for the nightly recalculation and for Quick Sight.",
-            managed_policies=[_ATHENA_MANAGED, _QUICKSIGHT_ATHENA],
+            statements=analytical_query_statements(self.curated_bucket.bucket_name),
         )
         self.curated_bucket.grant_read(role)
         self.raw_bucket.grant_read(role)
@@ -91,7 +92,34 @@ class DataLakeStack(MargeStack):
             "CrawlerRole",
             service="glue.amazonaws.com",
             description="Reads the raw zone to refresh the catalog.",
-            managed_policies=[_GLUE_MANAGED],
+            statements=[
+                iam.PolicyStatement(
+                    actions=[
+                        "glue:CreateTable",
+                        "glue:UpdateTable",
+                        "glue:CreatePartition",
+                        "glue:UpdatePartition",
+                        "glue:BatchCreatePartition",
+                        "glue:BatchDeletePartition",
+                        "glue:GetDatabase",
+                        "glue:GetDatabases",
+                        "glue:GetTable",
+                        "glue:GetTables",
+                        "glue:GetPartition",
+                        "glue:GetPartitions",
+                    ],
+                    resources=["*"],
+                ),
+                iam.PolicyStatement(
+                    actions=[
+                        "logs:CreateLogGroup",
+                        "logs:CreateLogStream",
+                        "logs:PutLogEvents",
+                        "logs:AssociateKmsKey",
+                    ],
+                    resources=["*"],
+                ),
+            ],
         )
         self.raw_bucket.grant_read(crawler_role)
         return crawler_role
