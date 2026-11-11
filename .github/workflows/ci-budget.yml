@@ -22,7 +22,7 @@ concurrency:
 jobs:
   ci-budget:
     name: ci-budget
-    runs-on: [self-hosted, marge-msp-worker]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER || '["self-hosted","marge-msp-worker"]') }}
     timeout-minutes: 5
     steps:
       - name: Checkout (superficiel)
