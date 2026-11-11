@@ -16,6 +16,9 @@ def generate(args: argparse.Namespace) -> int:
     manifest = generate(out)
     print(f"dataset written to {out}")
     for key, value in sorted(manifest.items()):
+        if key == "files":
+            print(f"  files: {len(value)} written")
+            continue
         print(f"  {key}: {value}")
     return 0
 

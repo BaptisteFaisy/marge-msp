@@ -106,6 +106,31 @@ Spec §22 lists this as a known risk: chat agents, scheduled flows and spaces ca
 
 ## 5. Routine Operations
 
+### 5.1 CI runner pool
+
+All workflows take their runner from the repository variable `CI_RUNNER`:
+
+```bash
+# what is in force
+gh api repos/BaptisteFaisy/marge-msp/actions/variables/CI_RUNNER --jq .value
+
+# the four self-hosted workers of the R630 (default)
+gh api -X PATCH repos/BaptisteFaisy/marge-msp/actions/variables/CI_RUNNER \
+  -f value='["self-hosted","marge-msp-worker"]'
+
+# GitHub-hosted fallback when the R630 is unreachable or overloaded
+gh api -X PATCH repos/BaptisteFaisy/marge-msp/actions/variables/CI_RUNNER \
+  -f value='["ubuntu-latest"]'
+```
+
+The workers are registered with `fabrique-repo.sh`; a runner that shows
+`offline busy=true` is a stuck listener, not a busy one:
+
+```bash
+ssh baptiste@100.124.18.48 'systemctl --user restart actions-runner-marge-msp-0{1,2,3,4}.service'
+```
+
+
 | Cadence | Action |
 |---|---|
 | Nightly | Step Functions run at 02:00; check the CloudWatch alarm `marge-ingestion-failed` is green and the run duration stays under 30 minutes (ENF-PERF-01) |

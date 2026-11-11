@@ -69,7 +69,8 @@ marge-msp/
 
 ## CI, Mergify and Hermes
 
-- **`ci`** (GitHub Actions, self-hosted workers): ruff check + format, size guard (`< 500` lines per file, `< 50` per function), offline pytest, Annex D smoke. **5-minute budget per job**, enforced by the **`ci-budget`** workflow; both checks are queue conditions.
+- **`ci`** (GitHub Actions): ruff check + format, size guard (`< 500` lines per file, `< 50` per function), offline pytest, Annex D smoke. **5-minute budget per job**, enforced by the **`ci-budget`** workflow; both checks are queue conditions.
+- **Runner pool**: every workflow reads `runs-on: ${{ fromJSON(vars.CI_RUNNER) }}`. The default is the four self-hosted workers of the R630 (`r630-marge-msp-01..04`, label `marge-msp-worker`); the repository variable `CI_RUNNER` switches the whole pool in one call, e.g. to `["ubuntu-latest"]` when the shared R630 is unreachable or overloaded. The value in force is the one the job actually used, visible in the run log.
 - **Mergify**: merge queue with rebase, batching 1–3, `urgent` / `priority-low` labels. `main` is protected — no direct pushes, the queue is the only merge pilot.
 - **hermes-lite**: freshness gate (`.github/workflows/hermes-lite.yml` + `.github/hermes/gate.py`), running in dry-run (`HERMES_LITE_DRY_RUN=1`); it labels and evaluates, it does not merge. **`stale-base-guard`**: informative branch-lag check.
 - **`deploy-check`**: CDK synth + Quick asset bundle, after merge on `main` only — never on a pull request, so the PR path stays inside the budget.
