@@ -35,4 +35,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
 
 
+serve.configure = configure  # type: ignore[attr-defined]
+
 COMMANDS = {"serve": serve}

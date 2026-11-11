@@ -31,4 +31,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--self-test", action="store_true", help="print tools/list and exit")
 
 
+mcp.configure = configure  # type: ignore[attr-defined]
+
 COMMANDS = {"mcp": mcp}
