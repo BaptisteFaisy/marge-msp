@@ -16,7 +16,7 @@ Everything needed to understand, run, deploy and judge Marge. Start with the spe
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Detailed architecture: exact AWS services per layer, nightly/weekly/monthly data flows, security controls, costs (Quick pricing, production estimate, hackathon budget), 3-minute video plan |
 | [DECISIONS.md](DECISIONS.md) | Seven short ADRs: code computes and never a model; AI proposes and humans validate; levels not people; unassigned hours are never spread; one `Store` Protocol, two backends; CI ≤ 5 min offline; effective-dated immutable rates |
-| [acceptance/MATRIX.md](acceptance/MATRIX.md) | Traceability: every `EF-*`, `ENF-*` and `R1..R15` → implementing file + proving test (its section 9 lists the two remaining gaps) |
+| [acceptance/MATRIX.md](acceptance/MATRIX.md) | Traceability: every `EF-*`, `ENF-*` and `R1..R15` → implementing file + proving test (its section 9 lists the remaining gaps) |
 | [CONTRACT.md](CONTRACT.md) | Module ownership and the public API each package must expose — the agreement between the parallel builders |
 | [DATA-FORMATS.md](DATA-FORMATS.md) | Canonical interchange formats between the data generator, the connectors and the evaluation harnesses |
 
