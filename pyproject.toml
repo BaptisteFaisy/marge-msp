@@ -34,6 +34,7 @@ markers = [
 
 [tool.ruff]
 line-length = 110
+extend-exclude = ["infra/cdk/.build", "infra/cdk/cdk.out", ".build"]
 target-version = "py312"
 src = ["src", "tests", "data", "infra", "scripts"]
 
@@ -43,6 +44,9 @@ ignore = ["ARG002", "ARG004", "RUF012", "SIM108", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "ARG001", "ARG002", "ARG004", "ARG005", "SLF001", "PLC0415"]
+# Un handler Lambda reçoit toujours (event, context) : `context` fait partie du
+# contrat d'exécution, pas de la logique. Le signaler ici plutôt que 9 fois.
+"src/marge/lambdas/**" = ["ARG001"]
 "data/generator/**" = ["RUF001"]
 
 [tool.coverage.run]

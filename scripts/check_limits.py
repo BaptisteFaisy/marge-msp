@@ -12,7 +12,18 @@ from pathlib import Path
 
 MAX_FILE_LINES = 500
 MAX_FUNCTION_LINES = 50
-SKIP_DIRS = {".git", ".github", "__pycache__", ".venv", "node_modules", "build", "dist", ".mypy_cache"}
+SKIP_DIRS = {
+    ".git",
+    ".github",
+    "__pycache__",
+    ".venv",
+    "node_modules",
+    "build",
+    "dist",
+    ".build",
+    "cdk.out",
+    ".mypy_cache",
+}
 
 
 def python_files(root: Path) -> list[Path]:

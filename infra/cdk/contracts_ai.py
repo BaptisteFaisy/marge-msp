@@ -18,24 +18,13 @@ from aws_cdk import CfnOutput, Duration
 from aws_cdk import aws_bedrock as bedrock
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from common import MargeStack, python_inline
+from common import MargeStack, lambda_package
 
 __all__ = ["ContractsAiStack"]
 
 _MODEL_ID = "amazon.nova-lite-v1:0"
 """Small, cheap Bedrock model used for the classification of the work."""
 
-_CLASSIFIER_BODY = """
-import json
-
-
-def handler(event, context):
-    \"\"\"Placeholder: the real classifier lives in ``marge.classify``.\"\"\"
-    return {
-        "statusCode": 200,
-        "body": json.dumps({"classified": 0, "mode": "placeholder"}),
-    }
-"""
 
 _INVOKE_ACTIONS = (
     "bedrock:InvokeModel",
@@ -81,9 +70,11 @@ class ContractsAiStack(MargeStack):
         *,
         environment: str = "dev",
         inference_profile_arn: str = "",
+        table_name: str = "marge",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, environment=environment, **kwargs)
+        self.table_name = table_name
         self.model_id = _MODEL_ID
         self.inference_profile_arn = inference_profile_arn
         self.bedrock_role = self._create_bedrock_role()
@@ -95,6 +86,7 @@ class ContractsAiStack(MargeStack):
             "Bedrock Data Automation is not available in every region yet; confirm the target "
             "region before deploying (docs/SPEC.fr.md chapter 24, point 2).",
         )
+        self.extractor = self._create_extractor()
         self._grant_model_access()
         self._outputs()
 
@@ -118,17 +110,44 @@ class ContractsAiStack(MargeStack):
             self,
             "ClassifierFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="index.handler",
-            code=python_inline(_CLASSIFIER_BODY),
+            handler="marge.lambdas.handlers.classify_handler",
+            code=lambda_package("jobs"),
             timeout=Duration.minutes(10),
             memory_size=2048,
             role=self.bedrock_role,
             environment={
-                "MODEL_ID": self.model_id,
+                "MARGE_TABLE": self.table_name,
+                "MARGE_MODEL_ID": self.model_id,
+                "MARGE_REGION": self.region,
                 "INFERENCE_PROFILE_ARN": self.inference_profile_arn,
-                "INFERENCE_PROFILE": "FLEX",
+                # Bedrock n'accepte que `standard` ou `optimized` ici ; le tarif
+                # Flex passe par un profil d'inférence, pas par ce réglage.
+                "INFERENCE_PROFILE": "standard",
             },
             description="Classifies the interventions against the scope of the contract.",
+        )
+
+    def _create_extractor(self) -> lambda_.Function:
+        """Read a contract PDF from S3 with Bedrock Data Automation (EF-CTR-01).
+
+        The extracted fields land in ``EXTRACTED`` status: they never count
+        before a human validates them in the portal (EF-CTR-03, ENF-IA-02).
+        """
+        return lambda_.Function(
+            self,
+            "ContractExtractorFunction",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="marge.lambdas.handlers.contracts_handler",
+            code=lambda_package("jobs"),
+            timeout=Duration.minutes(5),
+            memory_size=1024,
+            role=self.bedrock_role,
+            environment={
+                "MARGE_TABLE": self.table_name,
+                "MARGE_REGION": self.region,
+                "MARGE_PROFILE_ARN": self.project.attr_project_arn,
+            },
+            description="Extracts the Annex B fields of a contract with its source passages.",
         )
 
     def _grant_model_access(self) -> None:
@@ -183,5 +202,6 @@ class ContractsAiStack(MargeStack):
     def _outputs(self) -> None:
         """Expose the identifiers the deployment pipeline needs."""
         CfnOutput(self, "ClassifierFunctionName", value=self.classifier.function_name)
+        CfnOutput(self, "ContractExtractorFunctionName", value=self.extractor.function_name)
         CfnOutput(self, "ModelId", value=self.model_id)
         CfnOutput(self, "InferenceProfile", value="FLEX")
