@@ -166,3 +166,21 @@ def analytical_query_statements(curated_bucket_name: str = "") -> list[iam.Polic
             )
         )
     return statements
+
+
+DYNAMO_READ = ("dynamodb:GetItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchGetItem")
+DYNAMO_WRITE = ("dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:BatchWriteItem")
+
+
+def dynamo_store_statements(
+    region: str, account: str, table_name: str, *, write: bool = True, table_arn: str = ""
+) -> list[iam.PolicyStatement]:
+    """Least-privilege access to the validation store, indexes included.
+
+    One implementation shared by every stack that reads or writes the store:
+    duplicating the action list per stack is how the extractor ended up without
+    ``dynamodb:PutItem`` (observed in eu-west-1 on 2026-11-11).
+    """
+    actions = list(DYNAMO_READ) + (list(DYNAMO_WRITE) if write else [])
+    arn = table_arn or f"arn:aws:dynamodb:{region}:{account}:table/{table_name}"
+    return [iam.PolicyStatement(actions=actions, resources=[arn, f"{arn}/index/*"])]

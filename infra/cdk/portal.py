@@ -21,7 +21,7 @@ from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_s3_deployment as s3deploy
-from common import MargeStack, lambda_package, secure_bucket
+from common import MargeStack, dynamo_store_statements, lambda_package, secure_bucket
 
 PORTAL_DIR = str(Path(__file__).resolve().parents[2] / "portal")
 
@@ -137,18 +137,9 @@ class PortalStack(MargeStack):
             "ApiRole",
             service="lambda.amazonaws.com",
             description="Runs the validation portal API.",
-            statements=[
-                iam.PolicyStatement(
-                    actions=[
-                        "dynamodb:GetItem",
-                        "dynamodb:PutItem",
-                        "dynamodb:UpdateItem",
-                        "dynamodb:Query",
-                        "dynamodb:Scan",
-                    ],
-                    resources=[self.table.table_arn, f"{self.table.table_arn}/index/*"],
-                )
-            ],
+            statements=dynamo_store_statements(
+                self.region, self.account, self.table_name, table_arn=self.table.table_arn
+            ),
         )
 
     def _create_api_function(self) -> lambda_.Function:
