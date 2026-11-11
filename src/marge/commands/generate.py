@@ -30,4 +30,6 @@ def configure(parser: argparse.ArgumentParser) -> None:
     )
 
 
+generate.configure = configure  # type: ignore[attr-defined]
+
 COMMANDS = {"generate": generate}
