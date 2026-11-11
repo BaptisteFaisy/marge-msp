@@ -59,9 +59,14 @@ class KeywordClassifierModel:
         self.uncertain_confidence = uncertain_confidence
         self.calls: list[str] = []
 
+    @staticmethod
+    def _ticket(prompt: str) -> str:
+        """Only the fenced ticket block: the contract scope is not the ticket."""
+        return prompt.split("<ticket_data>")[-1].split("</ticket_data>")[0].lower()
+
     def complete(self, prompt: str, schema: dict) -> str:
         self.calls.append(prompt)
-        lowered = prompt.lower()
+        lowered = self._ticket(prompt)
         work_class, confidence = "IN_SCOPE", 0.93
         if any(word in lowered for word in OUT_OF_SCOPE_KEYWORDS):
             work_class, confidence = "OUT_OF_SCOPE", self.out_of_scope_confidence
