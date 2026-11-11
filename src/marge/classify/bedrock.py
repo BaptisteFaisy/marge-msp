@@ -15,7 +15,14 @@ import json
 from ..domain import Contract, Intervention
 from .prompt import build_prompt
 
-DEFAULT_MODEL_ID = "anthropic.claude-3-5-haiku-20241022-v1:0"
+# Inference profile, not a bare model id: Bedrock refuses on-demand invocation
+# of `amazon.nova-lite-v1:0` and asks for the regional profile instead
+# (verified live on account 710332178565 in eu-west-1, 2026-11-11:
+# "Invocation of model ID amazon.nova-lite-v1:0 with on-demand throughput isn't
+# supported. Retry your request with the ID or ARN of an inference profile").
+DEFAULT_MODEL_ID = "eu.amazon.nova-lite-v1:0"
+LATENCY_MODES = ("standard", "optimized")
+DEFAULT_REGION = "eu-west-1"
 
 OUT_OF_SCOPE_MARKERS = (
     "développement",
@@ -50,19 +57,38 @@ IN_SCOPE_MARKERS = (
 
 
 class BedrockClassifierModel:
-    """Classifier backed by a Bedrock model, Flex tier, structured output."""
+    """Classifier backed by a Bedrock model, Flex tier, structured output.
+
+    Two request shapes are supported because the payload and the answer of a
+    Nova model differ from an Anthropic one. The family is derived from the
+    model id, so callers only choose a model.
+    """
 
     def __init__(
         self,
         model_id: str = DEFAULT_MODEL_ID,
-        region: str = "eu-west-3",
-        inference_profile: str = "flex",
+        region: str = DEFAULT_REGION,
+        inference_profile: str = "standard",
+        max_tokens: int = 400,
         client=None,
     ) -> None:
         self.model_id = model_id
         self.region = region
-        self.inference_profile = inference_profile
+        # Bedrock only accepts "optimized" or "standard" here (verified live on
+        # 2026-11-11: "Value 'flex' ... failed to satisfy constraint: Member must
+        # satisfy enum value set: [optimized, standard]"). The Flex tier of spec
+        # 13.2 is a *pricing* tier reached through a flex inference profile id,
+        # which this account does not expose in eu-west-1 (`list-inference-profiles`
+        # filtered on "flex" returns none). Pass such a profile id as `model_id`
+        # when it becomes available; nothing else has to change.
+        self.inference_profile = inference_profile if inference_profile in LATENCY_MODES else "standard"
+        self.max_tokens = max_tokens
         self._client = client
+
+    @property
+    def family(self) -> str:
+        """``nova`` or ``anthropic``, inferred from the model id."""
+        return "nova" if "nova" in self.model_id else "anthropic"
 
     def _runtime(self):
         if self._client is None:
@@ -71,24 +97,38 @@ class BedrockClassifierModel:
             self._client = boto3.client("bedrock-runtime", region_name=self.region)
         return self._client
 
-    def complete(self, prompt: str, schema: dict) -> str:
-        body = {
+    def _request_body(self, prompt: str) -> dict:
+        if self.family == "nova":
+            return {
+                "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                "inferenceConfig": {"maxTokens": self.max_tokens, "temperature": 0},
+            }
+        return {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 400,
+            "max_tokens": self.max_tokens,
             "temperature": 0,
             "messages": [{"role": "user", "content": prompt}],
         }
+
+    @staticmethod
+    def _answer_text(payload: dict, family: str) -> str:
+        if family == "nova":
+            content = (payload.get("output") or {}).get("message", {}).get("content") or []
+            return content[0].get("text", "{}") if content else "{}"
+        blocks = payload.get("content") or []
+        return blocks[0].get("text", "{}") if blocks else "{}"
+
+    def complete(self, prompt: str, schema: dict) -> str:
+        """One Bedrock call, returning the raw text answer (Annex C JSON)."""
         response = self._runtime().invoke_model(
             modelId=self.model_id,
-            body=json.dumps(body),
+            body=json.dumps(self._request_body(prompt)),
             contentType="application/json",
             accept="application/json",
-            # Flex: cheaper nightly batch (spec 13.2)
             performanceConfigLatency=self.inference_profile,
         )
         payload = json.loads(response["body"].read())
-        blocks = payload.get("content") or []
-        return blocks[0].get("text", "{}") if blocks else "{}"
+        return self._answer_text(payload, self.family)
 
 
 class LocalRuleModel:

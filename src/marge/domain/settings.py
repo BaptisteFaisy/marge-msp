@@ -35,8 +35,14 @@ class Settings:
     monthly_review_day_of_month: int = 3
     """Third working day: the scheduled flow runs then (spec 14.4)."""
 
-    bedrock_inference_profile: str = "FLEX"
-    """Nightly classification runs on the Flex tier (spec 13.2)."""
+    bedrock_inference_profile: str = "standard"
+    """Latency mode accepted by Bedrock: `standard` or `optimized`.
+
+    Spec 13.2 planned the Flex tier for the nightly batch. Flex is a pricing
+    tier reached through a *flex inference profile*, not through this setting,
+    and the demo account exposes none in eu-west-1 — see the note in
+    ``marge.classify.bedrock`` and docs/DECISIONS.md.
+    """
 
     classification_model_id: str = "amazon-bedrock-classifier"
     bedrock_data_automation_profile_id: str = "marge-contract-fields-v1"
