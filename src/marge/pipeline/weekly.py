@@ -31,16 +31,25 @@ def pending_classifications(store: Store, month: Month | None = None) -> list[ob
     return [c for c in rows if c.intervention_id in wanted]
 
 
-def _hours_and_value(store: Store, classification: object) -> tuple[Decimal, Decimal]:
-    intervention = next(
-        (i for i in store.list_interventions() if i.intervention_id == classification.intervention_id),
-        None,
-    )
+def _hours_and_value(
+    intervention,
+    contract,
+) -> tuple[Decimal, Decimal]:
+    """Hours of one classification and their contract value."""
     if intervention is None:
         return (Decimal("0"), Decimal("0"))
-    contract = store.active_contract(intervention.client_id or "", intervention.month)
     hourly = contract.fields.extra_hour_rate if contract else Decimal("0")
     return (intervention.hours_spent, money(intervention.hours_spent * hourly))
+
+
+def _indexes(store: Store) -> tuple[dict, dict]:
+    """One pass over the interventions and the contracts, reused per row."""
+    interventions = {i.intervention_id: i for i in store.list_interventions()}
+    contracts = {}
+    for contract in store.list_contracts():
+        key = (contract.client_id, contract.version)
+        contracts[key] = contract
+    return interventions, contracts
 
 
 def build_queues(store: Store, month: Month | None = None) -> list[AccountManagerQueue]:
@@ -52,6 +61,7 @@ def build_queues(store: Store, month: Month | None = None) -> list[AccountManage
             continue
         grouped[client.account_manager_id].append(classification)
 
+    interventions, contracts = _indexes(store)
     queues: list[AccountManagerQueue] = []
     for manager, rows in sorted(grouped.items()):
         clients: set[str] = set()
@@ -61,7 +71,9 @@ def build_queues(store: Store, month: Month | None = None) -> list[AccountManage
         for row in rows:
             clients.add(row.client_id)
             ids.append(row.intervention_id)
-            spent, value = _hours_and_value(store, row)
+            intervention = interventions.get(row.intervention_id)
+            contract = contracts.get((row.client_id, row.contract_version))
+            spent, value = _hours_and_value(intervention, contract)
             total_hours += spent
             total_value += value
         queues.append(
