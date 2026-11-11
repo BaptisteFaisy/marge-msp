@@ -8,9 +8,9 @@ from marge.domain import Month
 
 
 def _store(path: str):
-    from marge.api.deps import build_local_store
+    from marge.store import open_store
 
-    return build_local_store(path)
+    return open_store(path)
 
 
 def _classifier(store, settings):
@@ -29,13 +29,11 @@ def _classifier(store, settings):
 
 def _model():
     """Return the Bedrock model when available, else the deterministic local one."""
-    from marge.classify.bedrock import BedrockClassifierModel
+    from marge.classify.bedrock import BedrockClassifierModel, LocalRuleModel
 
     try:
         return BedrockClassifierModel()
-    except RuntimeError:
-        from marge.classify.local_model import LocalRuleModel
-
+    except (RuntimeError, ImportError):
         return LocalRuleModel()
 
 

@@ -14,10 +14,10 @@ def serve(args: argparse.Namespace) -> int:
         print("uvicorn is required: python3 -m pip install --user uvicorn", file=sys.stderr)
         return 2
 
-    from marge.api.app import create_app
-    from marge.api.deps import build_local_store
+    from marge.api import create_app
+    from marge.store import open_store
 
-    store = build_local_store(args.db)
+    store = open_store(args.db)
     app = create_app(store=store, auth_mode=args.auth_mode)
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     return 0

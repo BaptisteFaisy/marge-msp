@@ -9,11 +9,12 @@ import sys
 
 def mcp(args: argparse.Namespace) -> int:
     """Serve the MCP tools over stdin/stdout (JSON-RPC 2.0, one message per line)."""
-    from marge.api.deps import build_local_store
+    from marge.domain import ActorRole
     from marge.mcp.server import McpContext, serve_stdio
+    from marge.store import open_store
 
-    store = build_local_store(args.db)
-    ctx = McpContext(store=store, actor_id=args.actor, role=args.role)
+    store = open_store(args.db)
+    ctx = McpContext(store=store, actor_id=args.actor, role=ActorRole(args.role))
     if args.self_test:
         from marge.mcp.server import handle_request
 
