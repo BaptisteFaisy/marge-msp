@@ -1,0 +1,10 @@
+{
+  "app": "python3 app.py",
+  "output": "cdk.out",
+  "versionReporting": false,
+  "context": {
+    "ENVIRONMENT": "dev",
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/core:checkSecretUsage": true
+  }
+}

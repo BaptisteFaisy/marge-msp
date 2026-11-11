@@ -1,0 +1,929 @@
+{
+  "account": {
+    "language": "en",
+    "name": "marge-hackathon",
+    "region": "eu-west-3"
+  },
+  "generated_by": "marge.quicksight.deploy.build_plan",
+  "manual_actions": [
+    {
+      "action_id": "MA-AGENT",
+      "description": "The agent API exists (CreateAgent) but the deployment keeps it manual: the agent must be bound to the topic, the contracts space and the three MCP tools in the console, and it needs a Professional licence per account manager. Chapter 22 rates this risk as 'strong probability, low impact'.",
+      "reference": "docs/SPEC.fr.md chapter 22, risk 'Agents, flows and spaces are not creatable by program'",
+      "resource": "Chat agent (EF-AGT-01..03)",
+      "steps": [
+        "Open the Quick console, then Agents, then Create agent.",
+        "Name it 'Profitability analyst' and paste the instructions of the agent section of the bundle (agent.instructions and agent.rules).",
+        "Attach the knowledge: the topic marge_topic and the contracts space marge_project.",
+        "Attach the three MCP actions create_renegotiation_task, draft_extra_billing_proposal and get_margin_breakdown.",
+        "Add the five reference questions of agent.examples as the test set of the agent.",
+        "Publish the agent and give it the Professional licence of the account managers."
+      ]
+    },
+    {
+      "action_id": "MA-FLOW",
+      "description": "A scheduled flow belongs to the user who creates it (spec 14.4), so it is created by the controller in the console. The flow API (CreateFlow) cannot transfer ownership.",
+      "reference": "docs/SPEC.fr.md chapter 14.4 and chapter 22",
+      "resource": "Scheduled flow (EF-REV-01, EF-REV-02)",
+      "steps": [
+        "Sign in as the controller, open Flows, then Create scheduled flow.",
+        "Name it 'Monthly profitability review' and paste the six steps of flow.steps.",
+        "Set the schedule to the third working day of the month, at 07:00 UTC.",
+        "Add the sources: the dashboards EF-TDB-01, EF-TDB-03, EF-TDB-04 and the topic.",
+        "Add the destinations: the e-mail of the direction and the project space marge_project.",
+        "Run it once on a past month and check the figures against the dashboards."
+      ]
+    },
+    {
+      "action_id": "MA-SPACE",
+      "description": "The contracts space holds the PDF contracts of the clients and is the knowledge source the agent quotes from. It is created in the console so that its memberships stay under the control of the administrator.",
+      "reference": "docs/SPEC.fr.md chapter 13.1 and chapter 22",
+      "resource": "Project space with the contracts (EF-AGT-01)",
+      "steps": [
+        "Open Spaces, then Create space, and name it marge_project.",
+        "Add the S3 bucket of the contracts as a knowledge source, read only.",
+        "Give access to the agent and to the controller, and to nobody else.",
+        "Check on a contract that the agent quotes the clause with its article number."
+      ]
+    },
+    {
+      "action_id": "MA-TOPIC",
+      "description": "When the account does not expose the topic API, the semantic layer is declared in the console from the topic section of the bundle.",
+      "reference": "docs/SPEC.fr.md chapter 14.1 and point 9 of chapter 24",
+      "resource": "Semantic layer, fallback if the API is not exposed",
+      "steps": [
+        "Open the Quick console, then the topic marge_topic.",
+        "Declare the twelve metrics of topic.metrics with their definition and their unit.",
+        "Declare the synonyms of topic.synonyms so that 'rentabilite', 'marge', 'profit' and 'margin' all resolve to the margin metric.",
+        "Declare the five joins of topic.joins between the datasets.",
+        "Check that the default aggregations of topic.default_aggregations are the ones of the specification."
+      ]
+    }
+  ],
+  "programmable_steps": [
+    {
+      "action": "create_data_source",
+      "api": "quicksight:CreateDataSource",
+      "description": "Athena data source pointing at the curated S3 zone.",
+      "order": 1,
+      "parameters": {
+        "aws_account_id": "${AWS_ACCOUNT_ID}",
+        "first_table": "marge_client_mois",
+        "region": "eu-west-3",
+        "role_arn": "${QUICKSIGHT_ATHENA_ROLE_ARN}",
+        "s3_uri": "s3://marge-curated/marge/",
+        "work_group": "primary"
+      },
+      "resource": "quicksight_data_source"
+    },
+    {
+      "action": "create_dataset",
+      "api": "quicksight:CreateDataSet",
+      "description": "one client, one month — Monthly margin of each client: revenue by post, cost by nature, margin, rate, coverage.",
+      "order": 2,
+      "parameters": {
+        "data_source_id": "${DATA_SOURCE_ID}",
+        "fields": [
+          "client_id",
+          "client_name",
+          "account_manager_id",
+          "month",
+          "revenue_subscription",
+          "revenue_aws_resale",
+          "revenue_extra_hours_billed",
+          "revenue_projects",
+          "revenue_total",
+          "cost_labour",
+          "cost_tooling",
+          "cost_msp_aws",
+          "cost_penalties",
+          "cost_total",
+          "margin",
+          "margin_rate",
+          "coverage",
+          "is_estimate",
+          "state",
+          "calc_version"
+        ],
+        "keys": [
+          "client_id",
+          "month"
+        ],
+        "name": "marge_client_mois",
+        "sql": "WITH marge AS (\n    SELECT\n        client_id,\n        month,\n        revenue_subscription,\n        revenue_aws_resale,\n        revenue_extra_hours_billed,\n        revenue_projects,\n        cost_labour,\n        cost_tooling,\n        cost_msp_aws,\n        cost_penalties,\n        margin,\n        margin_rate,\n        coverage,\n        is_estimate,\n        state,\n        calc_version\n    FROM marge.marge_mensuelle\n)\nSELECT\n    m.client_id,\n    c.client_name,\n    c.account_manager_id,\n    m.month,\n    m.revenue_subscription,\n    m.revenue_aws_resale,\n    m.revenue_extra_hours_billed,\n    m.revenue_projects,\n    m.revenue_subscription + m.revenue_aws_resale\n        + m.revenue_extra_hours_billed + m.revenue_projects AS revenue_total,\n    m.cost_labour,\n    m.cost_tooling,\n    m.cost_msp_aws,\n    m.cost_penalties,\n    m.cost_labour + m.cost_tooling + m.cost_msp_aws + m.cost_penalties AS cost_total,\n    m.margin,\n    m.margin_rate,\n    m.coverage,\n    m.is_estimate,\n    m.state,\n    m.calc_version\nFROM marge m\nJOIN marge.clients c ON c.client_id = m.client_id"
+      },
+      "resource": "quicksight_dataset:marge_client_mois"
+    },
+    {
+      "action": "create_dataset",
+      "api": "quicksight:CreateDataSet",
+      "description": "one client, one month, one work category, one level — Effort and labour cost split by category and by level, with the class of the work.",
+      "order": 3,
+      "parameters": {
+        "data_source_id": "${DATA_SOURCE_ID}",
+        "fields": [
+          "client_id",
+          "account_manager_id",
+          "month",
+          "category",
+          "level",
+          "hours_spent",
+          "labour_cost",
+          "ticket_count",
+          "work_class",
+          "hourly_cost"
+        ],
+        "keys": [
+          "client_id",
+          "month",
+          "category",
+          "level"
+        ],
+        "name": "effort_client_mois_categorie",
+        "sql": "WITH classed AS (\n    SELECT\n        i.client_id,\n        i.occurred_on,\n        i.category,\n        i.level,\n        i.ticket_id,\n        i.hours_spent,\n        COALESCE(cl.work_class, 'IN_SCOPE') AS work_class\n    FROM marge.interventions i\n    LEFT JOIN marge.classements cl ON cl.intervention_id = i.intervention_id\n),\nrated AS (\n    SELECT\n        k.*,\n        r.hourly_cost,\n        k.hours_spent * r.hourly_cost AS labour_cost\n    FROM classed k\n    JOIN marge.couts_horaires r\n      ON r.level = k.level\n     AND r.effective_from <= LAST_DAY(CAST(k.occurred_on AS DATE))\n     AND r.effective_from = (\n            SELECT MAX(r2.effective_from)\n            FROM marge.couts_horaires r2\n            WHERE r2.level = k.level\n              AND r2.effective_from <= LAST_DAY(CAST(k.occurred_on AS DATE))\n        )\n)\nSELECT\n    rated.client_id,\n    clients.account_manager_id,\n    DATE_FORMAT(CAST(rated.occurred_on AS DATE), 'yyyy-MM') AS month,\n    rated.category,\n    rated.level,\n    SUM(rated.hours_spent) AS hours_spent,\n    SUM(rated.labour_cost) AS labour_cost,\n    COUNT(DISTINCT rated.ticket_id) AS ticket_count,\n    ANY_VALUE(rated.work_class) AS work_class,\n    ANY_VALUE(rated.hourly_cost) AS hourly_cost\nFROM rated\nJOIN marge.clients clients ON clients.client_id = rated.client_id\nGROUP BY\n    rated.client_id,\n    clients.account_manager_id,\n    DATE_FORMAT(CAST(rated.occurred_on AS DATE), 'yyyy-MM'),\n    rated.category,\n    rated.level"
+      },
+      "resource": "quicksight_dataset:effort_client_mois_categorie"
+    },
+    {
+      "action": "create_dataset",
+      "api": "quicksight:CreateDataSet",
+      "description": "one client, one month — Unbilled hours per client and month, with their value and their state.",
+      "order": 4,
+      "parameters": {
+        "data_source_id": "${DATA_SOURCE_ID}",
+        "fields": [
+          "client_id",
+          "account_manager_id",
+          "month",
+          "out_of_scope_validated_hours",
+          "over_quota_hours",
+          "billed_extra_hours",
+          "unbilled_hours",
+          "contract_hour_rate",
+          "unbilled_value",
+          "state"
+        ],
+        "keys": [
+          "client_id",
+          "month"
+        ],
+        "name": "heures_non_facturees",
+        "sql": "SELECT\n    h.client_id,\n    c.account_manager_id,\n    h.month,\n    h.out_of_scope_validated_hours,\n    h.over_quota_hours,\n    h.billed_extra_hours,\n    h.out_of_scope_validated_hours + h.over_quota_hours - h.billed_extra_hours AS unbilled_hours,\n    h.contract_hour_rate,\n    (h.out_of_scope_validated_hours + h.over_quota_hours - h.billed_extra_hours)\n        * h.contract_hour_rate AS unbilled_value,\n    h.state\nFROM marge.heures_non_facturees h\nJOIN marge.clients c ON c.client_id = h.client_id"
+      },
+      "resource": "quicksight_dataset:heures_non_facturees"
+    },
+    {
+      "action": "create_dataset",
+      "api": "quicksight:CreateDataSet",
+      "description": "one contract — Contracts renewing within 90 days, with the six-month margin rate and the trend.",
+      "order": 5,
+      "parameters": {
+        "data_source_id": "${DATA_SOURCE_ID}",
+        "fields": [
+          "contract_id",
+          "version",
+          "client_id",
+          "client_name",
+          "account_manager_id",
+          "monthly_subscription",
+          "included_hours_per_month",
+          "extra_hour_rate",
+          "end_date",
+          "days_to_renewal",
+          "margin_rate_six_months",
+          "trend",
+          "status"
+        ],
+        "keys": [
+          "contract_id",
+          "version"
+        ],
+        "name": "contrats_actifs",
+        "sql": "WITH marge_6m AS (\n    SELECT\n        client_id,\n        SUM(revenue_subscription + revenue_aws_resale\n            + revenue_extra_hours_billed + revenue_projects) AS revenue_6m,\n        SUM(cost_labour + cost_tooling + cost_msp_aws + cost_penalties) AS cost_6m\n    FROM marge.marge_mensuelle\n    WHERE month >= date_format(current_date, 'yyyy-MM')\n              - INTERVAL '5' MONTH\n    GROUP BY client_id\n),\ntrend AS (\n    SELECT\n        client_id,\n        CASE\n            WHEN margin_rate - LAG(margin_rate) OVER (\n                     PARTITION BY client_id ORDER BY month) >  0.005 THEN 'UP'\n            WHEN margin_rate - LAG(margin_rate) OVER (\n                     PARTITION BY client_id ORDER BY month) < -0.005 THEN 'DOWN'\n            ELSE 'FLAT'\n        END AS trend\n    FROM marge.marge_mensuelle\n)\nSELECT\n    ct.contract_id,\n    ct.version,\n    ct.client_id,\n    c.client_name,\n    c.account_manager_id,\n    ct.monthly_subscription,\n    ct.included_hours_per_month,\n    ct.extra_hour_rate,\n    ct.end_date,\n    DATE_DIFF('day', current_date, ct.end_date) AS days_to_renewal,\n    CASE WHEN m.revenue_6m > 0\n         THEN (m.revenue_6m - m.cost_6m) / m.revenue_6m\n         ELSE 0 END AS margin_rate_six_months,\n    COALESCE(t.trend, 'FLAT') AS trend,\n    ct.status\nFROM marge.contrats ct\nJOIN marge.clients c ON c.client_id = ct.client_id\nLEFT JOIN marge_6m m ON m.client_id = ct.client_id\nLEFT JOIN trend t ON t.client_id = ct.client_id\nWHERE ct.status IN ('VALIDATED', 'AMENDED')\n  AND ct.end_date IS NOT NULL\n  AND DATE_DIFF('day', current_date, ct.end_date) BETWEEN 0 AND 90"
+      },
+      "resource": "quicksight_dataset:contrats_actifs"
+    },
+    {
+      "action": "create_dataset",
+      "api": "quicksight:CreateDataSet",
+      "description": "one intervention — Classifications awaiting a human decision, with the cited contract clause.",
+      "order": 6,
+      "parameters": {
+        "data_source_id": "${DATA_SOURCE_ID}",
+        "fields": [
+          "intervention_id",
+          "ticket_id",
+          "client_id",
+          "client_name",
+          "account_manager_id",
+          "occurred_on",
+          "category",
+          "level",
+          "hours_spent",
+          "proposed_class",
+          "confidence",
+          "cited_clause",
+          "reason",
+          "needs_human_validation",
+          "decision_status"
+        ],
+        "keys": [
+          "intervention_id"
+        ],
+        "name": "interventions_a_valider",
+        "sql": "SELECT\n    i.intervention_id,\n    i.ticket_id,\n    i.client_id,\n    c.client_name,\n    c.account_manager_id,\n    i.occurred_on,\n    i.category,\n    i.level,\n    i.hours_spent,\n    cl.work_class AS proposed_class,\n    cl.confidence,\n    cl.cited_clause,\n    cl.reason,\n    cl.needs_human_validation,\n    cl.status AS decision_status\nFROM marge.classements cl\nJOIN marge.interventions i ON i.intervention_id = cl.intervention_id\nJOIN marge.clients c ON c.client_id = i.client_id\nWHERE cl.status = 'PENDING'\n  AND cl.work_class IN ('OUT_OF_SCOPE', 'UNCERTAIN')"
+      },
+      "resource": "quicksight_dataset:interventions_a_valider"
+    },
+    {
+      "action": "create_topic",
+      "api": "quicksight:CreateTopic",
+      "description": "Semantic layer of Marge: the definitions of the margin, of the effort and of the unbilled hours, the business synonyms, the default aggregations and the joins between the five analytical datasets. Every question about the profitability of a client goes through this topic so that two people get the same number.",
+      "order": 7,
+      "parameters": {
+        "datasets": [
+          "marge_client_mois",
+          "effort_client_mois_categorie",
+          "heures_non_facturees",
+          "contrats_actifs",
+          "interventions_a_valider"
+        ],
+        "joins": [
+          {
+            "left": "marge_client_mois",
+            "on": [
+              "client_id",
+              "month"
+            ],
+            "right": "effort_client_mois_categorie"
+          },
+          {
+            "left": "marge_client_mois",
+            "on": [
+              "client_id",
+              "month"
+            ],
+            "right": "heures_non_facturees"
+          },
+          {
+            "left": "marge_client_mois",
+            "on": [
+              "client_id"
+            ],
+            "right": "contrats_actifs"
+          },
+          {
+            "left": "marge_client_mois",
+            "on": [
+              "client_id"
+            ],
+            "right": "interventions_a_valider"
+          },
+          {
+            "left": "heures_non_facturees",
+            "on": [
+              "client_id"
+            ],
+            "right": "contrats_actifs"
+          }
+        ],
+        "metrics": [
+          "margin",
+          "margin_rate",
+          "revenue_total",
+          "cost_total",
+          "effort_hours",
+          "effort_cost",
+          "cost_per_ticket",
+          "unbilled_hours",
+          "unbilled_value",
+          "quota_consumption",
+          "coverage",
+          "renewal_window"
+        ],
+        "synonyms": {
+          "ce que le client rapporte": "margin",
+          "charge": "effort_hours",
+          "effort": "effort_hours",
+          "heures non facturees": "unbilled_hours",
+          "marge": "margin",
+          "margin": "margin",
+          "profit": "margin",
+          "rentabilite": "margin",
+          "taux de marge": "margin_rate",
+          "temps passe": "effort_hours",
+          "travail offert": "unbilled_hours"
+        }
+      },
+      "resource": "quicksight_topic:marge_topic"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "Total margin of the period, ranking of the clients, clients under the threshold and the month-over-month trend, with the coverage indicator.",
+      "order": 8,
+      "parameters": {
+        "datasets": [
+          "marge_client_mois"
+        ],
+        "name": "Profitability overview",
+        "requirement": "EF-TDB-01",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE"
+        ],
+        "widgets": [
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "margin",
+              "is_estimate"
+            ],
+            "filters": [],
+            "measures": [
+              "margin"
+            ],
+            "name": "total_margin",
+            "type": "KPI"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "margin",
+              "revenue_total"
+            ],
+            "filters": [],
+            "measures": [
+              "margin_rate"
+            ],
+            "name": "margin_rate",
+            "type": "KPI"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "client_name",
+              "margin",
+              "margin_rate",
+              "coverage",
+              "is_estimate"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "client_ranking",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "client_name",
+              "margin_rate",
+              "coverage"
+            ],
+            "filters": [
+              "margin_rate < threshold (20 % by default, EF-ADM-01)"
+            ],
+            "measures": [],
+            "name": "below_threshold",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "margin",
+              "margin_rate"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "margin_trend",
+            "type": "LINE"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "coverage",
+              "is_estimate"
+            ],
+            "filters": [],
+            "measures": [
+              "coverage"
+            ],
+            "name": "coverage",
+            "type": "KPI"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-01"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "Revenue, cost by nature, hours by level and by category, contract quota and commercial terms of one client.",
+      "order": 9,
+      "parameters": {
+        "datasets": [
+          "marge_client_mois",
+          "effort_client_mois_categorie",
+          "contrats_actifs"
+        ],
+        "name": "Client sheet",
+        "requirement": "EF-TDB-02",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE",
+          "RLS-HOURLY-COST-RESTRICTED"
+        ],
+        "widgets": [
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "revenue_subscription",
+              "revenue_aws_resale",
+              "revenue_extra_hours_billed",
+              "revenue_projects",
+              "revenue_total"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "client_revenue",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "cost_labour",
+              "cost_tooling",
+              "cost_msp_aws",
+              "cost_penalties"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "client_costs",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "month",
+              "margin",
+              "margin_rate",
+              "is_estimate"
+            ],
+            "filters": [],
+            "measures": [
+              "margin",
+              "margin_rate"
+            ],
+            "name": "client_margin",
+            "type": "KPI"
+          },
+          {
+            "dataset": "effort_client_mois_categorie",
+            "fields": [
+              "client_id",
+              "month",
+              "level",
+              "hours_spent",
+              "labour_cost"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "hours_by_level",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "effort_client_mois_categorie",
+            "fields": [
+              "client_id",
+              "month",
+              "category",
+              "hours_spent",
+              "ticket_count",
+              "work_class"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "hours_by_category",
+            "type": "BAR"
+          },
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "client_id",
+              "included_hours_per_month",
+              "extra_hour_rate"
+            ],
+            "filters": [],
+            "measures": [
+              "included_hours_per_month"
+            ],
+            "name": "quota",
+            "type": "KPI"
+          },
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "contract_id",
+              "version",
+              "monthly_subscription",
+              "included_hours_per_month",
+              "extra_hour_rate",
+              "end_date",
+              "days_to_renewal",
+              "trend"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "contract",
+            "type": "TEXT"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-02"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "Unbilled hours by client, in hours and in value, with their state and the classifications waiting for a human.",
+      "order": 10,
+      "parameters": {
+        "datasets": [
+          "heures_non_facturees",
+          "interventions_a_valider"
+        ],
+        "name": "Unbilled hours",
+        "requirement": "EF-TDB-03",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE"
+        ],
+        "widgets": [
+          {
+            "dataset": "heures_non_facturees",
+            "fields": [
+              "client_id",
+              "month",
+              "unbilled_hours",
+              "unbilled_value"
+            ],
+            "filters": [],
+            "measures": [
+              "unbilled_hours",
+              "unbilled_value"
+            ],
+            "name": "unbilled_total",
+            "type": "KPI"
+          },
+          {
+            "dataset": "heures_non_facturees",
+            "fields": [
+              "client_id",
+              "month",
+              "out_of_scope_validated_hours",
+              "over_quota_hours",
+              "billed_extra_hours",
+              "unbilled_hours",
+              "unbilled_value"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "unbilled_by_client",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "heures_non_facturees",
+            "fields": [
+              "client_id",
+              "month",
+              "unbilled_hours",
+              "state"
+            ],
+            "filters": [],
+            "measures": [
+              "unbilled_hours"
+            ],
+            "name": "unbilled_by_state",
+            "type": "PIE"
+          },
+          {
+            "dataset": "interventions_a_valider",
+            "fields": [
+              "intervention_id",
+              "client_id",
+              "occurred_on",
+              "category",
+              "hours_spent",
+              "proposed_class",
+              "cited_clause"
+            ],
+            "filters": [
+              "decision_status = PENDING"
+            ],
+            "measures": [],
+            "name": "pending_validation",
+            "type": "TABLE"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-03"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "Contracts renewing within 90 days, with their margin rate and their trend.",
+      "order": 11,
+      "parameters": {
+        "datasets": [
+          "contrats_actifs"
+        ],
+        "name": "Renewals within 90 days",
+        "requirement": "EF-TDB-04",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE"
+        ],
+        "widgets": [
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "contract_id",
+              "client_id",
+              "days_to_renewal",
+              "margin_rate_six_months",
+              "trend"
+            ],
+            "filters": [
+              "0 <= days_to_renewal <= 90"
+            ],
+            "measures": [
+              "days_to_renewal"
+            ],
+            "name": "renewal_count",
+            "type": "KPI"
+          },
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "contract_id",
+              "client_id",
+              "client_name",
+              "end_date",
+              "days_to_renewal",
+              "monthly_subscription",
+              "margin_rate_six_months",
+              "trend"
+            ],
+            "filters": [
+              "0 <= days_to_renewal <= 90"
+            ],
+            "measures": [],
+            "name": "renewal_table",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "contract_id",
+              "client_id",
+              "end_date",
+              "days_to_renewal",
+              "margin_rate_six_months",
+              "trend"
+            ],
+            "filters": [
+              "0 <= days_to_renewal <= 90",
+              "trend = DOWN"
+            ],
+            "measures": [],
+            "name": "renewal_falling",
+            "type": "TABLE"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-04"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "Work types that cost the most, by client, by category and by level.",
+      "order": 12,
+      "parameters": {
+        "datasets": [
+          "effort_client_mois_categorie"
+        ],
+        "name": "Effort",
+        "requirement": "EF-TDB-05",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE",
+          "RLS-HOURLY-COST-RESTRICTED"
+        ],
+        "widgets": [
+          {
+            "dataset": "effort_client_mois_categorie",
+            "fields": [
+              "client_id",
+              "month",
+              "category",
+              "labour_cost",
+              "hours_spent",
+              "ticket_count"
+            ],
+            "filters": [],
+            "measures": [
+              "labour_cost"
+            ],
+            "name": "costliest_categories",
+            "type": "BAR"
+          },
+          {
+            "dataset": "effort_client_mois_categorie",
+            "fields": [
+              "client_id",
+              "month",
+              "category",
+              "level",
+              "hours_spent",
+              "labour_cost",
+              "ticket_count"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "effort_by_client",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "effort_client_mois_categorie",
+            "fields": [
+              "client_id",
+              "month",
+              "category",
+              "labour_cost",
+              "ticket_count",
+              "work_class"
+            ],
+            "filters": [],
+            "measures": [
+              "labour_cost",
+              "ticket_count"
+            ],
+            "name": "cost_per_ticket",
+            "type": "TABLE"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-05"
+    },
+    {
+      "action": "create_dashboard",
+      "api": "quicksight:CreateDashboard",
+      "description": "The same analytical tables, restricted by the row-level rule to the clients of the signed-in account manager.",
+      "order": 13,
+      "parameters": {
+        "datasets": [
+          "marge_client_mois",
+          "heures_non_facturees",
+          "contrats_actifs"
+        ],
+        "name": "My portfolio (row-level filtering)",
+        "requirement": "EF-TDB-06",
+        "row_filter_rules": [
+          "RLS-ACCOUNT-MANAGER-SCOPE",
+          "RLS-HOURLY-COST-RESTRICTED"
+        ],
+        "widgets": [
+          {
+            "dataset": "marge_client_mois",
+            "fields": [
+              "client_id",
+              "client_name",
+              "account_manager_id",
+              "month",
+              "margin",
+              "margin_rate"
+            ],
+            "filters": [],
+            "measures": [],
+            "name": "my_clients",
+            "type": "TABLE"
+          },
+          {
+            "dataset": "heures_non_facturees",
+            "fields": [
+              "client_id",
+              "month",
+              "unbilled_hours",
+              "unbilled_value",
+              "state"
+            ],
+            "filters": [],
+            "measures": [
+              "unbilled_hours",
+              "unbilled_value"
+            ],
+            "name": "my_unbilled",
+            "type": "KPI"
+          },
+          {
+            "dataset": "contrats_actifs",
+            "fields": [
+              "contract_id",
+              "client_id",
+              "end_date",
+              "days_to_renewal",
+              "margin_rate_six_months",
+              "trend"
+            ],
+            "filters": [
+              "0 <= days_to_renewal <= 90"
+            ],
+            "measures": [],
+            "name": "my_renewals",
+            "type": "TABLE"
+          }
+        ]
+      },
+      "resource": "quicksight_dashboard:EF-TDB-06"
+    },
+    {
+      "action": "apply_rls",
+      "api": "quicksight:CreateDataSet (RowLevelPermissionDataSet)",
+      "description": "Rows are kept when the account_manager_id column equals the session parameter. Roles listed with ALL see every row.",
+      "order": 14,
+      "parameters": {
+        "identity_parameter": "marge_account_manager_id",
+        "identity_source": "Quick session parameter set at sign-in from the portal (Cognito group claim)",
+        "protected_datasets": [
+          "marge_client_mois",
+          "effort_client_mois_categorie",
+          "heures_non_facturees",
+          "contrats_actifs",
+          "interventions_a_valider"
+        ],
+        "protected_fields": [],
+        "role_values": {
+          "ACCOUNT_MANAGER": [
+            "SELF"
+          ],
+          "ADMINISTRATOR": [
+            "ALL"
+          ],
+          "CONTROLLER": [
+            "ALL"
+          ],
+          "EXECUTIVE": [
+            "ALL"
+          ],
+          "OPERATIONS_DIRECTOR": [
+            "ALL"
+          ]
+        }
+      },
+      "resource": "quicksight_rls:RLS-ACCOUNT-MANAGER-SCOPE"
+    },
+    {
+      "action": "apply_rls",
+      "api": "quicksight:CreateDataSet (RowLevelPermissionDataSet)",
+      "description": "The hourly costs and the contractual hourly rates are readable by the controller and the direction only. The other roles see the field masked. The cost of the labour is kept: only the rate that produces it is hidden (ENF-CONF-03, spec 17).",
+      "order": 15,
+      "parameters": {
+        "identity_parameter": "marge_account_manager_id",
+        "identity_source": "Quick session parameter set at sign-in from the portal (Cognito group claim)",
+        "protected_datasets": [],
+        "protected_fields": [
+          "effort_client_mois_categorie.hourly_cost",
+          "heures_non_facturees.contract_hour_rate",
+          "contrats_actifs.extra_hour_rate"
+        ],
+        "role_values": {
+          "ACCOUNT_MANAGER": [
+            "NONE"
+          ],
+          "ADMINISTRATOR": [
+            "ALL"
+          ],
+          "CONTROLLER": [
+            "ALL"
+          ],
+          "EXECUTIVE": [
+            "ALL"
+          ],
+          "OPERATIONS_DIRECTOR": [
+            "NONE"
+          ]
+        }
+      },
+      "resource": "quicksight_rls:RLS-HOURLY-COST-RESTRICTED"
+    }
+  ]
+}
