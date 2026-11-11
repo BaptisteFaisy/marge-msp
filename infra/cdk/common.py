@@ -7,6 +7,7 @@ never imported by the tests.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from aws_cdk import Duration, Stack, Tags
@@ -18,7 +19,6 @@ __all__ = [
     "PROJECT_NAME",
     "MargeStack",
     "environment_name",
-    "python_inline",
     "secure_bucket",
     "tag_stack",
 ]
@@ -32,14 +32,28 @@ def environment_name(environment: str) -> str:
     return environment.strip().lower().replace(" ", "-")
 
 
-def python_inline(body: str) -> lambda_.Code:
-    """Return an inline Python Lambda code object.
+BUILD_DIR = Path(__file__).resolve().parent / ".build"
 
-    The handlers are placeholders: the production code lives in
-    ``src/marge`` and is packaged by the deployment pipeline. Keeping the
-    placeholder inline makes ``cdk synth`` work on a machine with no asset
-    directory.
+
+def lambda_package(name: str, placeholder: str = "") -> lambda_.Code:
+    """Code of one Lambda: the built package, or a stub when it is missing.
+
+    ``scripts/build-lambda-package.sh`` assembles ``infra/cdk/.build/<name>``
+    with the ``marge`` package and its runtime dependencies vendored in place,
+    so ``import marge.lambdas...`` works once unzipped at ``/var/task``.
+
+    Synthesis must never require that build (the CI worker has neither the
+    assets nor Docker): when the directory is absent the function falls back to
+    an inline stub that says so at invocation time instead of pretending to
+    serve the portal.
     """
+    directory = BUILD_DIR / name
+    if (directory / "marge").is_dir():
+        return lambda_.Code.from_asset(str(directory))
+    body = placeholder or (
+        "def handler(event, context):\n"
+        "    return {'statusCode': 501, 'body': 'run scripts/build-lambda-package.sh'}\n"
+    )
     return lambda_.Code.from_inline(body)
 
 

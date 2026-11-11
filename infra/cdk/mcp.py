@@ -18,23 +18,9 @@ from typing import Any
 from aws_cdk import CfnOutput, CfnResource, Duration
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
-from common import MargeStack, python_inline
+from common import MargeStack, lambda_package
 
 __all__ = ["McpStack"]
-
-_MCP_BODY = """
-import json
-
-TOOLS = ["create_renegotiation_task", "draft_extra_billing_proposal", "get_margin_breakdown"]
-
-
-def handler(event, context):
-    \"\"\"Placeholder: the real MCP server lives in ``marge.mcp``.\"\"\"
-    return {
-        "statusCode": 200,
-        "body": json.dumps({"tools": TOOLS, "mode": "placeholder"}),
-    }
-"""
 
 
 class McpStack(MargeStack):
@@ -86,12 +72,16 @@ class McpStack(MargeStack):
             self,
             "McpFunction",
             runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="index.handler",
-            code=python_inline(_MCP_BODY),
+            handler="marge.lambdas.handlers.mcp_handler",
+            code=lambda_package("jobs"),
             timeout=Duration.seconds(30),
             memory_size=512,
             role=self.mcp_role,
-            environment={"TABLE_NAME": self.table_name},
+            environment={
+                "MARGE_TABLE": self.table_name,
+                "MARGE_REGION": self.region,
+                "MARGE_ROLE": "ACCOUNT_MANAGER",
+            },
             description="MCP server: renegotiation task, billing draft, margin breakdown.",
         )
 
