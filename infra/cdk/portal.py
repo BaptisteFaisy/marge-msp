@@ -8,6 +8,7 @@ from a browser. Every validation keeps its author, its date and its reason
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from aws_cdk import CfnOutput, Duration
@@ -17,7 +18,10 @@ from aws_cdk import aws_cloudfront_origins as origins
 from aws_cdk import aws_cognito as cognito
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_s3_deployment as s3deploy
 from common import MargeStack, lambda_package, secure_bucket
+
+PORTAL_DIR = str(Path(__file__).resolve().parents[2] / "portal")
 
 __all__ = ["PortalStack"]
 
@@ -41,15 +45,22 @@ class PortalStack(MargeStack):
         *,
         environment: str = "dev",
         table_name: str = "marge-validations",
+        auth_mode: str = "dev",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, environment=environment, **kwargs)
         self.table_name = table_name
+        # `dev` : l'identité vient des en-têtes X-Actor-Id / X-Actor-Role, ce qui
+        # permet aux juges d'utiliser les comptes de démonstration (EF-ADM-03).
+        # `cognito` : l'autorisateur exige un jeton signé. Le user pool est créé
+        # dans les deux cas ; seul le branchement de l'autorisateur change.
+        self.auth_mode = auth_mode
         self.user_pool = self._create_user_pool()
         self.api_role = self._create_api_role()
         self.api_function = self._create_api_function()
         self.api = self._create_api()
         self.distribution = self._create_distribution()
+        self._deploy_site()
         self._outputs()
 
     def _create_user_pool(self) -> cognito.UserPool:
@@ -125,24 +136,44 @@ class PortalStack(MargeStack):
             description="Validation portal API of Marge (spec 16).",
             deploy_options=apigw.StageOptions(stage_name="prod", tracing_enabled=True),
         )
-        authorizer = apigw.CognitoUserPoolsAuthorizer(
-            self,
-            "PortalAuthorizer",
-            cognito_user_pools=[self.user_pool],
-            authorizer_name="portal-cognito",
-        )
+        # Un autorisateur non rattaché à une méthode fait échouer la synthèse
+        # (« must be attached to a RestApi ») : il n'est créé qu'en mode cognito.
+        authorizer = None
+        if self.auth_mode == "cognito":
+            authorizer = apigw.CognitoUserPoolsAuthorizer(
+                self,
+                "PortalAuthorizer",
+                cognito_user_pools=[self.user_pool],
+                authorizer_name="portal-cognito",
+            )
         integration = apigw.LambdaIntegration(self.api_function)
+        # Les routes du chapitre 16 sont sous /v1 : sans ce préfixe l'URL
+        # publique /prod/v1/contracts répond « Missing Authentication Token ».
+        v1 = api.root.add_resource("v1")
         resources: dict[str, apigw.Resource] = {}
         for template, methods in _API_ROUTES:
-            resource = _resource_for(api.root, resources, template)
+            resource = _resource_for(v1, resources, template)
             for method in methods:
-                resource.add_method(
-                    method,
-                    integration,
-                    authorizer=authorizer,
-                    authorization_type=apigw.AuthorizationType.COGNITO,
-                )
+                self._add_method(resource, method, integration, authorizer)
         return api
+
+    def _add_method(
+        self,
+        resource: apigw.Resource,
+        method: str,
+        integration: apigw.LambdaIntegration,
+        authorizer: apigw.CognitoUserPoolsAuthorizer | None,
+    ) -> None:
+        """Add one method, with the Cognito authorizer only in cognito mode."""
+        if self.auth_mode == "cognito" and authorizer is not None:
+            resource.add_method(
+                method,
+                integration,
+                authorizer=authorizer,
+                authorization_type=apigw.AuthorizationType.COGNITO,
+            )
+            return
+        resource.add_method(method, integration)
 
     def _create_distribution(self) -> cloudfront.Distribution:
         """Create the CloudFront distribution serving the static portal."""
@@ -169,15 +200,56 @@ class PortalStack(MargeStack):
                     response_page_path="/index.html",
                 ),
             ],
+            additional_behaviors={"/v1/*": self._api_behavior()},
             enable_ipv6=True,
             http_version=cloudfront.HttpVersion.HTTP2,
         )
+        self.site_bucket = site_bucket
         CfnOutput(self, "PortalSiteBucket", value=site_bucket.bucket_name)
         return distribution
+
+    def _deploy_site(self) -> None:
+        """Upload ``portal/`` to the site bucket and invalidate CloudFront.
+
+        Without it the distribution answers 403 on ``/``: the bucket exists but
+        holds nothing. The invalidation keeps ``index.html`` fresh after a redeploy.
+        """
+        s3deploy.BucketDeployment(
+            self,
+            "DeployPortalSite",
+            sources=[s3deploy.Source.asset(PORTAL_DIR)],
+            destination_bucket=self.site_bucket,
+            distribution=self.distribution,
+            distribution_paths=["/*"],
+            memory_limit=512,
+        )
+
+    def _api_behavior(self) -> cloudfront.BehaviorOptions:
+        """Proxy ``/v1/*`` to API Gateway: one public URL, no CORS.
+
+        The stage path (``/prod``) is the origin path, so the browser calls
+        ``https://<cloudfront>/v1/contracts`` and CloudFront reaches
+        ``/prod/v1/contracts``.
+        """
+        url = self.api.deployment_stage.url_for_path()
+        host = url.split("//")[1].split("/")[0]
+        stage = f"/{self.api.deployment_stage.stage_name}"
+        return cloudfront.BehaviorOptions(
+            origin=origins.HttpOrigin(host, origin_path=stage),
+            allowed_methods=cloudfront.AllowedMethods.ALLOW_ALL,
+            cache_policy=cloudfront.CachePolicy.CACHING_DISABLED,
+            origin_request_policy=cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+            viewer_protocol_policy=cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        )
 
     def _outputs(self) -> None:
         """Expose the URLs the demo needs."""
         CfnOutput(self, "PortalUrl", value=f"https://{self.distribution.distribution_domain_name}")
+        CfnOutput(
+            self,
+            "PortalApiNote",
+            value="The portal calls /v1/* on its own origin: leave the API base field empty.",
+        )
         CfnOutput(self, "ApiUrl", value=self.api.url)
         CfnOutput(self, "UserPoolId", value=self.user_pool.user_pool_id)
         CfnOutput(
