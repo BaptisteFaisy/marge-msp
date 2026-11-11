@@ -1,0 +1,53 @@
+name: pages
+
+# Publie le portail statique (portal/) sur GitHub Pages.
+#
+# Le portail est aussi servi, plus richement, par la distribution CloudFront du
+# déploiement AWS (même origine que l'API, pas de CORS) : cette page GitHub est
+# le miroir statique public du repo, accessible à tous sans rien installer.
+#
+# Le bouton « API » du portail doit alors pointer sur l'API déployée : le
+# champ `api-base` de `portal/index.html` reste vide (le portail se sert de
+# `window.location`), donc sur Pages il faut passer `?api=...` dans l'URL, ou
+# déposer le bouton et utiliser la démo CloudFront. Voir docs/TEST-INSTRUCTIONS.md.
+
+on:
+  push:
+    branches: [main]
+    paths: ["portal/**", ".github/workflows/pages.yml"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configurer Pages
+        uses: actions/configure-pages@v5
+
+      - name: Assembler le portail
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: portal
+
+      - name: Déployer
+        id: deployment
+        uses: actions/deploy-pages@v4

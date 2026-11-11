@@ -9,11 +9,14 @@
 const $ = (id) => document.getElementById(id);
 
 function defaultApiBase() {
-  /* Local: the API runs next to the portal on localhost. Deployed: CloudFront
-   * proxies /v1/* to API Gateway, so the base is the empty string (same
-   * origin) and no CORS header is needed. */
+  /* Local: the API runs next to the portal on localhost.
+   * CloudFront: it proxies /v1/* to API Gateway — same origin, no CORS.
+   * GitHub Pages: the API lives on the CloudFront distribution, CORS enabled,
+   * and its URL is baked by portal/config.js. */
   const here = window.location.origin || "";
   if (here.startsWith("http://localhost") || here.startsWith("http://127.")) return here;
+  if (window.location.hostname.endsWith(".cloudfront.net")) return "";
+  if (window.MARGE_API_BASE) return window.MARGE_API_BASE.replace(/\/+$/, "");
   return "";
 }
 

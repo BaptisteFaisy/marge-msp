@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..domain import Settings
@@ -39,6 +40,7 @@ def create_app(
     *,
     cognito_config: CognitoConfig | None = None,
     portal_dir: str | Path | None = None,
+    cors_origins: str = "",
 ) -> FastAPI:
     """Build the portal API over ``store``.
 
@@ -52,12 +54,34 @@ def create_app(
     app.state.settings = settings if settings is not None else store.load()
     app.state.auth_mode = AuthMode(str(auth_mode))
     app.state.cognito_config = cognito_config
+    _install_cors(app, cors_origins)
     app.include_router(validation_router)
     app.include_router(admin_router)
     app.include_router(insight_router)
     app.include_router(auth_router)
     mount_portal(app, portal_dir)
     return app
+
+
+def _install_cors(app: FastAPI, extra_origins: str) -> None:
+    """Allow the static portal to call the API from a different origin.
+
+    The CloudFront deployment serves both from one origin (no CORS needed), but
+    the GitHub Pages mirror of the portal calls the CloudFront API cross-origin.
+    With a Bearer token and no cookies, a permissive list is fine; the origins
+    come from ``MARGE_CORS_ORIGINS`` so a production deploy can restrict them.
+    """
+    import os
+
+    origins = (extra_origins or os.environ.get("MARGE_CORS_ORIGINS", "")).split(",")
+    origins = [origin.strip() for origin in origins if origin.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins or ["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        allow_credentials=False,
+    )
 
 
 def mount_portal(app: FastAPI, portal_dir: str | Path | None = None) -> Path | None:
