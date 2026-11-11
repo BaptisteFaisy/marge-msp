@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from .extraction import BedrockDataAutomation, LocalTextExtractor, extract_fields, side_by_side
+from .data_automation import BedrockDataAutomation, DataAutomationError
+from .extraction import LocalTextExtractor, extract_fields, side_by_side
 from .schema import (
     FIELD_HINTS,
     FIELD_PLAN,
@@ -24,6 +25,7 @@ __all__ = [
     "FIELD_PLAN",
     "BedrockDataAutomation",
     "ContractNotUsable",
+    "DataAutomationError",
     "FieldPlanEntry",
     "LocalTextExtractor",
     "awaiting_validation",

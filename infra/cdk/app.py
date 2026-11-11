@@ -47,8 +47,15 @@ def build_app(context: dict[str, str] | None = None) -> App:
         region=os.environ.get("CDK_DEFAULT_REGION", "eu-west-1"),
     )
     data_lake = DataLakeStack(app, "MargeDataLake", environment=env_name, env=env)
-    contracts_ai = ContractsAiStack(app, "MargeContractsAi", environment=env_name, env=env)
     portal = PortalStack(app, "MargePortal", environment=env_name, env=env)
+    contracts_ai = ContractsAiStack(
+        app,
+        "MargeContractsAi",
+        environment=env_name,
+        env=env,
+        table_name=portal.table_name,
+        raw_bucket_name=data_lake.raw_bucket.bucket_name,
+    )
     McpStack(app, "MargeMcp", environment=env_name, env=env)
     QuickSightStack(
         app,

@@ -58,10 +58,12 @@ class ContractsAiStack(MargeStack):
         environment: str = "dev",
         inference_profile_arn: str = "",
         table_name: str = "marge",
+        raw_bucket_name: str = "",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, environment=environment, **kwargs)
         self.table_name = table_name
+        self.raw_bucket_name = raw_bucket_name
         self.model_id = _MODEL_ID
         self.inference_profile_arn = inference_profile_arn
         self.bedrock_role = self._create_bedrock_role()
@@ -78,18 +80,32 @@ class ContractsAiStack(MargeStack):
         self._outputs()
 
     def _create_bedrock_role(self) -> iam.Role:
-        """Role assumed by the classification lambda to call Bedrock."""
+        """Role assumed by the extraction and classification lambdas.
+
+        Bedrock invocation plus, on the raw bucket only: read the contract PDFs
+        and write the data automation output. Without the S3 grant the extractor
+        dies with ``AccessDenied ... s3:GetObject`` on the very first call
+        (observed on account 710332178565, 2026-11-11).
+        """
+        statements = [iam.PolicyStatement(actions=list(_INVOKE_ACTIONS), resources=["*"])]
+        statements += self._raw_bucket_statements()
         return self.service_role(
             "BedrockRole",
             service="lambda.amazonaws.com",
             description="Calls Bedrock Data Automation and the Bedrock classifier.",
-            statements=[
-                iam.PolicyStatement(
-                    actions=list(_INVOKE_ACTIONS),
-                    resources=["*"],
-                )
-            ],
+            statements=statements,
         )
+
+    def _raw_bucket_statements(self) -> list[iam.PolicyStatement]:
+        """Least-privilege access to the raw contract bucket."""
+        if not self.raw_bucket_name:
+            return []
+        arn = f"arn:aws:s3:::{self.raw_bucket_name}"
+        return [
+            iam.PolicyStatement(actions=["s3:ListBucket"], resources=[arn]),
+            iam.PolicyStatement(actions=["s3:GetObject"], resources=[f"{arn}/contracts/*"]),
+            iam.PolicyStatement(actions=["s3:PutObject"], resources=[f"{arn}/contracts-output/*"]),
+        ]
 
     def _create_classifier(self) -> lambda_.Function:
         """Create the lambda that classifies the interventions overnight."""

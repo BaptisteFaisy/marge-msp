@@ -96,9 +96,13 @@ def contracts_handler(event: dict[str, Any], context: Any = None) -> dict[str, A
 
     bucket = event["bucket"]
     key = event["key"]
-    content = _read_s3(bucket, key)
-    extractor = _extractor()
-    fields = extract_fields(content, key, extractor) if extractor else extract_fields(content, key)
+    source = f"s3://{bucket}/{key}"
+    extractor = _extractor(bucket)
+    if extractor is not None:
+        # Bedrock Data Automation lit le document dans S3 lui-même.
+        fields = extractor.extract(source)
+    else:
+        fields = extract_fields(_read_s3(bucket, key), key)
 
     contract = Contract(
         contract_id=event.get("contract_id") or _contract_id_of(key),
@@ -119,14 +123,22 @@ def contracts_handler(event: dict[str, Any], context: Any = None) -> dict[str, A
     }
 
 
-def _extractor():
-    """Bedrock Data Automation when a project ARN is configured, else None."""
-    profile = os.environ.get("MARGE_PROFILE_ARN", "")
-    if not profile:
-        return None
-    from ..contracts.extraction import BedrockDataAutomation
+def _extractor(output_bucket: str):
+    """Bedrock Data Automation when a project ARN is configured, else None.
 
-    return BedrockDataAutomation(profile_id=profile)
+    Without the project ARN the caller falls back to the deterministic local
+    extractor, so the offline demo and the CI never need AWS.
+    """
+    project_arn = os.environ.get("MARGE_PROFILE_ARN", "")
+    if not project_arn:
+        return None
+    from ..contracts.data_automation import BedrockDataAutomation
+
+    return BedrockDataAutomation(
+        project_arn=project_arn,
+        region=os.environ.get("MARGE_REGION") or "eu-west-1",
+        output_bucket=output_bucket,
+    )
 
 
 def _read_s3(bucket: str, key: str) -> bytes:
