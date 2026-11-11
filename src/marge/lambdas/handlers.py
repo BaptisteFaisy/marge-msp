@@ -73,15 +73,23 @@ def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, An
     month = Month.parse(event["month"]) if event.get("month") else None
     if month is None:
         return {"classified": 0, "detail": "no month given"}
+    limit = int(event.get("limit") or os.environ.get("MARGE_CLASSIFY_BATCH", "50"))
 
     model = _classifier()
     memory = DecisionMemory(store)
+    settings = store.load()
 
     def run(intervention, contract):
-        return classify(intervention, contract, model, store.load(), memory=memory)
+        return classify(intervention, contract, model, settings, memory=memory)
 
-    classified, reused, queued = classify_pending(store, store.load(), month, run)
-    return {"month": str(month), "classified": classified, "reused": reused, "queued": queued}
+    classified, reused, queued = classify_pending(store, settings, month, run, limit=limit)
+    return {
+        "month": str(month),
+        "classified": classified,
+        "reused": reused,
+        "queued": queued,
+        "batch_limit": limit,
+    }
 
 
 def contracts_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
@@ -91,18 +99,14 @@ def contracts_handler(event: dict[str, Any], context: Any = None) -> dict[str, A
     ``EXTRACTED`` status, because only a human validation makes it count
     (EF-CTR-03, ENF-IA-02).
     """
-    from ..contracts import extract_fields
     from ..domain import Contract, ContractFields, ContractStatus
 
     bucket = event["bucket"]
     key = event["key"]
     source = f"s3://{bucket}/{key}"
+    content = _read_s3(bucket, key)
     extractor = _extractor(bucket)
-    if extractor is not None:
-        # Bedrock Data Automation lit le document dans S3 lui-même.
-        fields = extractor.extract(source)
-    else:
-        fields = extract_fields(_read_s3(bucket, key), key)
+    fields, engine = _extract_with_fallback(extractor, source, content, key)
 
     contract = Contract(
         contract_id=event.get("contract_id") or _contract_id_of(key),
@@ -119,8 +123,33 @@ def contracts_handler(event: dict[str, Any], context: Any = None) -> dict[str, A
         "version": contract.version,
         "status": contract.status.value,
         "customer_name": fields.customer_name,
+        "engine": engine,
         "fields_with_source": sorted(fields.spans),
     }
+
+
+def _extract_with_fallback(extractor, source: str, content: bytes, key: str):
+    """Bedrock Data Automation first, deterministic local extractor on refusal.
+
+    ``InvokeDataAutomationAsync`` answers ``AccessDeniedException`` until the
+    account enables the service (observed on 710332178565 in eu-west-1 on
+    2026-11-11, even with root credentials — it is an account-level opt-in, not
+    an IAM gap). The run must not die on it: the local extractor reads the same
+    Annex B fields and scores 100 % on the demo contracts. The response says
+    which engine ran, so nobody mistakes a fallback for the real service.
+    Set ``MARGE_BDA_FALLBACK=0`` to make the failure loud instead.
+    """
+    from ..contracts import extract_fields
+
+    if extractor is None:
+        return extract_fields(content, key), "local"
+    try:
+        return extractor.extract(source), "bedrock-data-automation"
+    except Exception as exc:
+        if os.environ.get("MARGE_BDA_FALLBACK", "1") == "0":
+            raise
+        print(f"bedrock data automation unavailable ({type(exc).__name__}): local extractor")
+        return extract_fields(content, key), "local-fallback"
 
 
 def _extractor(output_bucket: str):
