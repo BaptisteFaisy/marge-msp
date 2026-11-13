@@ -33,14 +33,20 @@ def _approve_matches(store) -> int:
     return approved
 
 
-def _read_contracts(store, files, resolver) -> int:
-    """Extract every contract text and validate it (demo shortcut)."""
+def _read_contracts(store, files, resolver, *, keep_unvalidated=()) -> tuple[int, int]:
+    """Extract every contract text; validate them all but the seeded one.
+
+    A contract left in ``EXTRACTED`` status makes the margin of its client
+    ``INCOMPLETE`` (R4): that is the situation the controller has to resolve
+    in the portal, so the demonstration keeps one of them.
+    """
     from ..contracts import extract_fields, validate_contract
     from ..domain import Contract, ContractFields
 
     directory = files.root / "contracts"
     if not directory.exists():
-        return 0
+        return (0, 0)
+    extracted = 0
     validated = 0
     for text_path in sorted(directory.glob("*.txt")):
         stem = text_path.stem
@@ -56,18 +62,55 @@ def _read_contracts(store, files, resolver) -> int:
             document_key=f"contracts/{stem}.pdf",
             effective_from=fields.start_date,
         )
+        extracted += 1
+        if contract_id in keep_unvalidated:
+            store.save_contract(contract)
+            continue
         try:
             store.save_contract(validate_contract(contract, "controller-01", "demo validation"))
             validated += 1
         except ValueError:
             store.save_contract(contract)
-    return validated
+    return (extracted, validated)
+
+
+def run_pipeline(
+    store,
+    files,
+    months,
+    *,
+    approve_matches: bool = False,
+    read_contracts: bool = False,
+    keep_unvalidated=(),
+    classifier=None,
+) -> dict:
+    """Load the three sources, classify the work and recompute the margins.
+
+    One implementation for every store: the local SQLite one (``marge demo``)
+    and the deployed DynamoDB one (``marge load-demo``). The report carries
+    the counts of each step so both commands print the same summary.
+    """
+    from ..ingest import load_reference_data
+    from ..match import MappingResolver
+
+    counts = dict(load_reference_data(store, files))
+    aliases = _aliases(files)
+    if approve_matches:
+        counts["matches_approved"] = _approve_matches(store)
+    resolver = MappingResolver(aliases, store.list_matches())
+    if read_contracts:
+        extracted, validated = _read_contracts(store, files, resolver, keep_unvalidated=keep_unvalidated)
+        counts["contracts_extracted"] = extracted
+        counts["contracts_validated"] = validated
+    for month in months:
+        counts.setdefault("months", []).append(str(month))
+        _run_month(store, files, month, classifier=classifier)
+    return counts
 
 
 def demo(args: argparse.Namespace) -> int:
     """Run the full offline demo and print the key figures."""
-    from ..ingest import SourceFiles, load_reference_data
-    from ..match import MappingResolver
+    from ..ingest import SourceFiles
     from ..pipeline import run_monthly
     from ..store import open_store
 
@@ -81,22 +124,19 @@ def demo(args: argparse.Namespace) -> int:
     db = args.db or str(Path(tempfile.mkdtemp()) / "marge-demo.sqlite3")
     store = open_store(db)
     files = SourceFiles.of(root)
-
-    counts = load_reference_data(store, files)
-    print(f"reference: {counts}")
-
-    aliases = _aliases(files)
-    resolver = MappingResolver(aliases, store.list_matches())
-    if args.auto_validate:
-        approved = _approve_matches(store)
-        resolver = MappingResolver(aliases, store.list_matches())
-        print(f"matches approved (demo): {approved}")
-        contracts = _read_contracts(store, files, resolver)
-        print(f"contracts validated (demo): {contracts}")
-
     months = [Month.parse(args.month)] if args.month else _months_in(files)
-    for month in months:
-        _run_month(store, files, month)
+
+    counts = run_pipeline(
+        store,
+        files,
+        months,
+        approve_matches=args.auto_validate,
+        read_contracts=args.auto_validate,
+    )
+    print(f"reference: {counts}")
+    if args.auto_validate:
+        print(f"matches approved (demo): {counts.get('matches_approved', 0)}")
+        print(f"contracts validated (demo): {counts.get('contracts_validated', 0)}")
 
     month = months[-1]
     _print_margins(store, month)
@@ -112,7 +152,7 @@ def demo(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_month(store, files, month: Month) -> None:
+def _run_month(store, files, month: Month, classifier=None) -> None:
     """Load one month, classify it, recompute it, and say what happened."""
     from ..ingest import load_month
     from ..pipeline import run_nightly
@@ -122,7 +162,7 @@ def _run_month(store, files, month: Month) -> None:
             f"load {report.source} {month}: {report.rows} row(s), "
             f"{report.unattributed_hours} h non rattachées"
         )
-    nightly = run_nightly(store, store.load(), month=month, classifier=_classifier(store))
+    nightly = run_nightly(store, store.load(), month=month, classifier=classifier or _classifier(store))
     queued = nightly.queued_for_validation
     print(
         f"nightly {nightly.month}: {nightly.classified} classées, "
@@ -136,16 +176,17 @@ def _aliases(files) -> list:
     return load_aliases(files.aliases)
 
 
-def _classifier(store):
+def _classifier(store, model=None):
+    """The deterministic local classifier, or the model it is given."""
     from ..classify import LocalRuleModel
     from ..classify.memory import DecisionMemory
     from ..classify.service import classify
 
     memory = DecisionMemory(store)
-    model = LocalRuleModel()
+    chosen = model if model is not None else LocalRuleModel()
 
     def run(intervention, contract):
-        return classify(intervention, contract, model, store.load(), memory=memory)
+        return classify(intervention, contract, chosen, store.load(), memory=memory)
 
     return run
 

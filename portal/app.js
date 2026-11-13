@@ -255,7 +255,7 @@ async function renderClassifications() {
   host.textContent = "";
   let rows;
   try {
-    rows = await api("/v1/classifications?status=pending");
+    rows = await api("/v1/classifications?status=pending&needs_validation=true");
   } catch (err) {
     host.appendChild(el("p", "error", "Cannot load classifications: " + err.message));
     return;

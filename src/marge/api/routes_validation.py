@@ -231,9 +231,15 @@ def list_classifications(
     status: str | None = Query(default=None),
     client_id: str | None = Query(default=None),
     month: str | None = Query(default=None),
+    needs_validation: bool | None = Query(default=None),
     ctx: ApiContext = Depends(get_context),
 ) -> list[dict[str, Any]]:
-    """List classifications (e.g. ``?status=pending``) under RLS (EF-CLS-03)."""
+    """List classifications (e.g. ``?status=pending``) under RLS (EF-CLS-03).
+
+    ``needs_validation=true`` returns only the classifications a human has to
+    decide — the out-of-scope and uncertain ones — instead of every pending
+    row, which is what the validation queue of the account manager needs.
+    """
     if client_id is not None:
         _require_client_access(ctx, client_id)
     parsed_month: Month | None = None
@@ -249,6 +255,8 @@ def list_classifications(
         client_id=client_id,
         month=parsed_month,
     )
+    if needs_validation is not None:
+        rows = [row for row in rows if row.needs_human_validation == needs_validation]
     clients = ctx.store.list_clients()
     visible = filter_by_clients(rows, ctx.actor, clients)
     iv_map = {iv.intervention_id: iv for iv in ctx.store.list_interventions(month=parsed_month)}

@@ -16,8 +16,24 @@ from .dynamo_store import DEFAULT_TABLE_NAME, DynamoStore, create_table_resource
 from .sqlite_store import SqliteStore
 
 
-def open_store(path: str | Path = "marge.sqlite3") -> SqliteStore:
-    """Open (and migrate) the local SQLite store used by the demo and the CLI."""
+def open_store(
+    path: str | Path = "marge.sqlite3",
+    *,
+    backend: str = "sqlite",
+    table_name: str = "",
+    region_name: str = "",
+) -> SqliteStore | DynamoStore:
+    """Open the store of the requested backend.
+
+    ``sqlite`` is the local one: the demo, the tests, the CI. ``dynamo`` is
+    the deployed one: the same ``Store`` protocol, the same data, the same
+    code — only the persistence differs (ENF-REP-01).
+
+    ``boto3`` stays lazily imported by ``DynamoStore``, so a local run never
+    needs it (CONTRACT rule 4).
+    """
+    if backend == "dynamo":
+        return DynamoStore(table_name or DEFAULT_TABLE_NAME, region_name=region_name or None)
     return SqliteStore(path)
 
 
