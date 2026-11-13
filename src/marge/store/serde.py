@@ -71,11 +71,29 @@ def _decode_container(raw: Any, kind: Any) -> Any:
     args = get_args(kind)
     inner = _unwrap_optional(args[0]) if args else Any
     if origin is dict:
-        return {str(k): v for k, v in (raw or {}).items()}
+        return _decode_mapping(raw, args)
     items = raw or []
     if dataclasses.is_dataclass(inner) and isinstance(inner, type):
         return [decode(inner, item) for item in items]
     return [decode_scalar(item, inner) for item in items]
+
+
+def _decode_mapping(raw: Any, args: tuple[Any, ...]) -> dict[str, Any]:
+    """Decode a mapping, rebuilding the dataclass values it declares.
+
+    ``ContractFields.spans`` is a ``dict[str, SourceSpan]``: the values are
+    domain objects, not plain dictionaries. Without this rebuild they come back
+    as dictionaries and the serialisers that read ``span.quote`` fail with an
+    AttributeError, so the validation portal shows no contract at all
+    (observed on the deployed portal, 2026-11-13).
+    """
+    value_kind = _unwrap_optional(args[1]) if len(args) > 1 else Any
+    items = (raw or {}).items()
+    if dataclasses.is_dataclass(value_kind) and isinstance(value_kind, type):
+        return {
+            str(key): decode(value_kind, value) if isinstance(value, dict) else value for key, value in items
+        }
+    return {str(key): value for key, value in items}
 
 
 def decode(cls: type, payload: dict[str, Any]) -> Any:
