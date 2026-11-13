@@ -80,7 +80,7 @@ def find_pool(identity: Any, pool_name: str) -> str:
 def upsert_user(identity: Any, pool_id: str, login: str, password: str) -> None:
     """Create the user if needed, set its password, confirm it."""
     with contextlib.suppress(identity.exceptions.UsernameExistsException):
-        identity.create_user(UserPoolId=pool_id, Username=login, MessageAction="SUPPRESS")
+        identity.admin_create_user(UserPoolId=pool_id, Username=login, MessageAction="SUPPRESS")
     identity.admin_set_user_password(
         UserPoolId=pool_id,
         Username=login,
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     identity = boto3.client("cognito-idp", region_name=args.region)
-    secrets_client = boto3.client("secrets-manager", region_name=args.region)
+    secrets_client = boto3.client("secretsmanager", region_name=args.region)
     pool_id = args.pool_id or find_pool(identity, args.pool_name)
 
     credentials: dict[str, str] = {}
