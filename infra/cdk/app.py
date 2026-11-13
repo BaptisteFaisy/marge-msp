@@ -23,6 +23,7 @@ from aws_cdk import App, Environment
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from budget import BudgetStack
 from contracts_ai import ContractsAiStack
 from data_lake import DataLakeStack
 from mcp import McpStack
@@ -49,7 +50,7 @@ def _environment() -> Environment:
 
 
 def _build_stacks(app: App, env_name: str, env: Environment) -> None:
-    """Instantiate the seven stacks and their ordering."""
+    """Instantiate the eight stacks and their ordering."""
     data_lake = DataLakeStack(app, "MargeDataLake", environment=env_name, env=env)
     portal = PortalStack(
         app,
@@ -75,6 +76,13 @@ def _build_stacks(app: App, env_name: str, env: Environment) -> None:
         curated_bucket_name=data_lake.curated_bucket.bucket_name,
     )
     observability = ObservabilityStack(app, "MargeObservability", environment=env_name, env=env)
+    BudgetStack(
+        app,
+        "MargeBudget",
+        environment=env_name,
+        env=env,
+        alarm_email=os.environ.get("MARGE_BUDGET_EMAIL", ""),
+    )
     orchestration = OrchestrationStack(
         app,
         "MargeOrchestration",

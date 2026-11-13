@@ -5,7 +5,7 @@ PYTEST ?= $(PYTHON) -m pytest
 RUFF   ?= $(PYTHON) -m ruff
 SRC    := src tests data infra scripts
 
-.PHONY: help install lint format test smoke demo assets limits all clean
+.PHONY: help install lint format test smoke demo assets limits all clean deploy destroy
 
 help:
 	@echo "make install  - dev dependencies"
@@ -17,6 +17,8 @@ help:
 	@echo "make demo     - full local demo (portal + review + MCP self-test)"
 	@echo "make assets   - write the QuickSight asset bundle"
 	@echo "make all      - lint + limits + test (what CI runs)"
+	@echo "make deploy   - deploy the AWS environment and load the demo data"
+	@echo "make destroy  - delete the AWS environment and its data"
 
 install:
 	$(PYTHON) -m pip install --user -e ".[dev,api]"
@@ -45,6 +47,12 @@ assets:
 	PYTHONPATH=src $(PYTHON) -m marge.cli assets --out infra/quicksight-assets
 
 all: lint limits test
+
+deploy:
+	bash scripts/deploy.sh
+
+destroy:
+	bash scripts/teardown.sh
 
 clean:
 	rm -rf .pytest_cache .ruff_cache build dist *.egg-info data/generated

@@ -30,26 +30,31 @@ The validation portal is live and open to everyone (fictional data only):
 | Where | URL |
 |---|---|
 | **Production demo** (CloudFront, UI + API on one origin) | https://d3n1e2aqabg966.cloudfront.net |
-| **GitHub Pages mirror** (static site of this repo) | https://baptistefaisy.github.io/marge-msp/ |
+| **GitHub Pages mirror** (static site of this repo) | https://tradoooo.github.io/marge-msp/ |
 
-Demo identities (Cognito, one per role of spec 6):
+**Demo identities.** The login and the password are transmitted in the
+Devpost test-instructions form, and kept in **AWS Secrets Manager** — never in
+this repository. The portal signs the judges in with **Amazon Cognito**: one
+account per role of the specification, and one judge account that can read and
+validate.
 
-| Login | Password | Role |
+| Login | Role | What it sees |
 |---|---|---|
-| controller-01@marge.demo | `MargeDemo2026!` | CONTROLLER |
-| am-01@marge.demo | `MargeDemo2026!` | ACCOUNT_MANAGER |
-| director-01@marge.demo | `MargeDemo2026!` | EXECUTIVE |
-| ops-01@marge.demo | `MargeDemo2026!` | OPERATIONS_DIRECTOR |
-| admin-01@marge.demo | `MargeDemo2026!` | ADMINISTRATOR |
+| `judge@marge.demo` | CONTROLLER | Every client, the hourly costs, and the three validation queues |
+| `director-01@marge.demo` | EXECUTIVE | Every client, the review, the scenarios |
+| `ops-01@marge.demo` | OPERATIONS_DIRECTOR | Every client, the effort by category and level |
+| `am-01@marge.demo` | ACCOUNT_MANAGER | **Only their own clients**, and never an hourly cost |
+| `controller-01@marge.demo` | CONTROLLER | Every client, the rate cards, the contract validation |
+| `admin-01@marge.demo` | ADMINISTRATOR | Technical settings, the data coverage, the ingestion triggers |
 
-An account manager sees only their own clients and never an hourly cost; the
-controller sees every client and the per-level rates. The GitLab Pages mirror
+The account manager sees only their own clients and never an hourly cost; the
+controller sees every client and the per-level rates. The GitHub Pages mirror
 cross-calls the CloudFront API, so both URLs serve the same live data.
 
 ## Quick start
 
 ```bash
-git clone git@github.com:BaptisteFaisy/marge-msp.git && cd marge-msp
+git clone https://github.com/Tradoooo/marge-msp.git && cd marge-msp
 python3 -m pip install --user -e ".[dev,api]"
 make smoke       # recompute the Annex D golden case offline — no AWS, no credentials
 ```
