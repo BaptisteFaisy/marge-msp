@@ -1,12 +1,18 @@
 # Marge — validation portal (static, no build step)
 
-Three screens on top of the portal API (spec 16, EF-VAL-01):
+Four screens on top of the portal API (spec 16, EF-VAL-01):
 
 | Screen | Route used | Requirement |
 |---|---|---|
+| Margins | `GET /v1/margins`, `GET /v1/margins/{client_id}/{month}/why` | EF-CAL-01, EF-TDB-01, EF-TDB-02, ENF-TRA-01 |
 | Matches | `GET /v1/matches`, `POST /v1/matches/{id}/decision` | EF-REF-01 |
 | Contracts | `GET /v1/contracts`, `GET /v1/contracts/{id}`, `PUT .../fields`, `POST .../validate` | EF-CTR-02, EF-CTR-03 |
-| Classifications | `GET /v1/classifications?status=pending`, `POST /v1/classifications/{id}/decision` | EF-CLS-03 |
+| Classifications | `GET /v1/classifications?status=pending&needs_validation=true`, `POST /v1/classifications/{id}/decision` | EF-CLS-03 |
+
+The **Margins** screen is the one the judges start from: the margin of every
+client, month by month, and — with *Why?* — the decomposition of a single
+figure down to its source lines. Nothing is computed in the browser: every
+figure comes from `marge.calc` on the server (ENF-IA-01).
 
 Each extracted contract field is displayed next to the passage of the contract
 it was read from, with a **validate** and a **correct** button. Each pending
