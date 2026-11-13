@@ -304,24 +304,26 @@ class DynamoStore:
         return self._rows("rates", Rate)
 
     def save_tooling_costs(self, costs: Sequence[ToolingCost]) -> int:
-        return self._put_batch(
-            self._item("tooling_costs", f"{c.tool}:{i}", c, client_id=c.client_id)
-            for i, c in enumerate(costs)
-        )
+        # The tool is the natural key (docs/DATA-FORMATS.md: one row per tool):
+        # a key built on the position in the batch would duplicate the rows
+        # when the load is replayed with another order.
+        return self._put_batch(self._item("tooling_costs", c.tool, c, client_id=c.client_id) for c in costs)
 
     def list_tooling_costs(self) -> list[ToolingCost]:
         return self._rows("tooling_costs", ToolingCost)
 
     def save_aws_costs(self, costs: Sequence[AwsCost]) -> int:
+        # One account, one month (docs/DATA-FORMATS.md): the natural key never
+        # depends on the position in the batch.
         return self._put_batch(
             self._item(
                 "aws_costs",
-                f"{c.aws_account_id}:{c.month}:{i}",
+                f"{c.aws_account_id}:{c.month}",
                 c,
                 client_id=c.client_id,
                 month=c.month,
             )
-            for i, c in enumerate(costs)
+            for c in costs
         )
 
     def list_aws_costs(self, month: Month | None = None) -> list[AwsCost]:
@@ -336,9 +338,10 @@ class DynamoStore:
         return self._rows_by_month("invoices", Invoice, month)
 
     def save_penalties(self, penalties: Sequence[Penalty]) -> int:
+        # One client, one month (docs/DATA-FORMATS.md).
         return self._put_batch(
-            self._item("penalties", f"{p.client_id}:{p.month}:{i}", p, client_id=p.client_id, month=p.month)
-            for i, p in enumerate(penalties)
+            self._item("penalties", f"{p.client_id}:{p.month}", p, client_id=p.client_id, month=p.month)
+            for p in penalties
         )
 
     def list_penalties(self, month: Month | None = None) -> list[Penalty]:
@@ -371,15 +374,17 @@ class DynamoStore:
         return self._rows_by_month("margin_months", MarginMonth, month)
 
     def save_effort_slices(self, rows: Sequence[EffortSlice]) -> int:
+        # The grain of Annex A: one client, one month, one category, one level
+        # and one class — never the position in the batch.
         return self._put_batch(
             self._item(
                 "effort_slices",
-                f"{r.client_id}:{r.month}:{r.category}:{r.level.value}:{r.work_class.value}:{i}",
+                f"{r.client_id}:{r.month}:{r.category}:{r.level.value}:{r.work_class.value}",
                 r,
                 client_id=r.client_id,
                 month=r.month,
             )
-            for i, r in enumerate(rows)
+            for r in rows
         )
 
     def list_effort_slices(self, client_id: str | None = None) -> list[EffortSlice]:
