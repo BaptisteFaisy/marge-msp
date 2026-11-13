@@ -78,12 +78,33 @@ def _classifier():
     return BedrockClassifierModel(model_id=model_id) if model_id else BedrockClassifierModel()
 
 
-def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
-    """Classify the interventions of one month that have no classification yet."""
+def _plain_classifier(store, model):
+    """Build the ``classifier(intervention, contract)`` callable of the pipeline.
+
+    The pipeline expects a callable, not a model: a bare model object is not
+    callable and the nightly job died with "TypeError: 'BedrockClassifierModel'
+    object is not callable" on every run (observed in the deployed Step
+    Functions executions of 2026-11-12 and 2026-11-13).
+
+    One place builds it, so the decision memory and the model-call log are
+    always wired the same way (EF-CLS-04, idea 18).
+    """
     from ..classify.memory import DecisionMemory
     from ..classify.service import classify
-    from ..domain import Month
     from ..llmlog import logged_classifier
+
+    memory = DecisionMemory(store)
+    settings = store.load()
+
+    def plain(intervention, contract):
+        return classify(intervention, contract, model, settings, memory=memory)
+
+    return logged_classifier(plain, store, purpose="classify", model=model)
+
+
+def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """Classify the interventions of one month that have no classification yet."""
+    from ..domain import Month
     from ..pipeline.nightly import classify_pending
 
     store = _store()
@@ -92,18 +113,11 @@ def classify_handler(event: dict[str, Any], context: Any = None) -> dict[str, An
         return {"classified": 0, "detail": "no month given"}
     limit = int(event.get("limit") or os.environ.get("MARGE_CLASSIFY_BATCH", "50"))
 
-    model = _classifier()
-    memory = DecisionMemory(store)
-    settings = store.load()
-
-    def plain(intervention, contract):
-        return classify(intervention, contract, model, settings, memory=memory)
-
     # Chaque appel modèle est tracé : modèle, latence, tokens, coût estimé,
     # classe produite (ENF-IA-01..03, idée 18).
-    run = logged_classifier(plain, store, purpose="classify", model=model)
+    run = _plain_classifier(store, _classifier())
 
-    classified, reused, queued = classify_pending(store, settings, month, run, limit=limit)
+    classified, reused, queued = classify_pending(store, store.load(), month, run, limit=limit)
     return {
         "month": str(month),
         "classified": classified,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .handlers import _classifier, _store
+from .handlers import _classifier, _plain_classifier, _store
 
 
 def _month_or_latest(event: dict[str, Any]):
@@ -29,7 +29,11 @@ def nightly_handler(event: dict[str, Any], context: Any = None) -> dict[str, Any
 
     store = _store()
     month = _month_or_latest(event)
-    report = run_nightly(store, store.load(), month=month, classifier=_classifier())
+    # The pipeline takes a callable, not a model: handing it the model object
+    # made every nightly run fail with "TypeError: 'BedrockClassifierModel'
+    # object is not callable" (deployed executions of 2026-11-12 and 13).
+    classifier = _plain_classifier(store, _classifier())
+    report = run_nightly(store, store.load(), month=month, classifier=classifier)
     return {
         "month": str(report.month),
         "classified": report.classified,
@@ -58,10 +62,7 @@ def classify_client_handler(event: dict[str, Any], context: Any = None) -> dict[
     of the nightly run stops growing with the number of clients and follows the
     Map concurrency instead.
     """
-    from ..classify.memory import DecisionMemory
-    from ..classify.service import classify
     from ..domain import Month
-    from ..llmlog import logged_classifier
     from ..pipeline.nightly import classify_pending
 
     store = _store()
@@ -78,18 +79,12 @@ def classify_client_handler(event: dict[str, Any], context: Any = None) -> dict[
     if month is None:
         return {"classified": 0, "detail": "no month"}
 
-    model = _classifier()
-    memory = DecisionMemory(store)
     settings = store.load()
-
-    def plain(intervention, contract):
-        return classify(intervention, contract, model, settings, memory=memory)
-
     classified, reused, queued = classify_pending(
         store,
         settings,
         month,
-        logged_classifier(plain, store, purpose="classify", model=model),
+        _plain_classifier(store, _classifier()),
         limit=int(event.get("limit") or 0) or None,
         client_id=client_id,
     )

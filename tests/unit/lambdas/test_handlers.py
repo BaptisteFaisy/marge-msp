@@ -161,3 +161,67 @@ def test_intervention_level_is_preserved_for_the_handler() -> None:
     )
     assert intervention.level is WorkLevel.N3
     assert ActorRole("CONTROLLER") is ActorRole.CONTROLLER
+
+
+def _populated_store() -> FakeStore:
+    from tests.fakes.builders import (
+        golden_aws_costs,
+        golden_client,
+        golden_contract,
+        golden_interventions,
+        golden_rates,
+        golden_tooling,
+    )
+
+    store = FakeStore()
+    store.upsert_clients([golden_client()])
+    store.save_contract(golden_contract())
+    store.save_rates(golden_rates())
+    store.save_tooling_costs(golden_tooling())
+    store.save_aws_costs(golden_aws_costs())
+    store.save_interventions(golden_interventions())
+    return store
+
+
+def _local_model(monkeypatch) -> None:
+    """Replace the Bedrock model by the deterministic local rules."""
+    from marge.classify.bedrock import LocalRuleModel
+    from marge.lambdas import jobs
+
+    monkeypatch.setattr(jobs, "_classifier", lambda: LocalRuleModel())
+
+
+def test_nightly_handler_recomputes_the_margins(monkeypatch) -> None:
+    """The nightly job must hand the pipeline a callable, not a model object.
+
+    The deployed Step Functions runs failed every night with "TypeError:
+    'BedrockClassifierModel' object is not callable" (2026-11-12 and 13), so
+    no margin was ever computed on the deployed account.
+    """
+    from marge.lambdas import jobs
+
+    store = _populated_store()
+    monkeypatch.setattr("marge.lambdas.handlers._STORE", store, raising=False)
+    _local_model(monkeypatch)
+
+    report = jobs.nightly_handler({"month": "2026-10"})
+
+    assert report["month"] == "2026-10"
+    assert report["classified"] == 6
+    assert report["clients_recalculated"] == 1
+    assert store.list_margin_months(month=Month.parse("2026-10"))
+
+
+def test_classify_client_handler_classifies_one_client(monkeypatch) -> None:
+    """The Map branch of the nightly state machine classifies one client."""
+    from marge.lambdas import jobs
+
+    store = _populated_store()
+    monkeypatch.setattr("marge.lambdas.handlers._STORE", store, raising=False)
+    _local_model(monkeypatch)
+
+    report = jobs.classify_client_handler({"client_id": "c-001", "month": "2026-10"})
+
+    assert report["classified"] == 6
+    assert report["month"] == "2026-10"
+    assert len(store.list_classifications()) == 6
