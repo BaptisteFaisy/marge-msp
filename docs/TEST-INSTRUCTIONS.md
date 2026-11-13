@@ -18,6 +18,7 @@ The CLI (`src/marge/cli.py`) discovers commands from `src/marge/commands/`; each
 | `version` | Prints the package version |
 | `generate` | Writes the synthetic dataset — 12 clients, 6 months (2026-05 → 2026-10), 3 922 interventions, 13 contract versions, 150 labelled interventions, 20 reference questions |
 | `demo` | Full offline pipeline: load → match → contracts → classify → compute → margin table → MCP tools. `--auto-validate` simulates the human gates, `--review` also prints the Annex E review, `--db` keeps the SQLite file |
+| `load-demo` | The same pipeline against any store — `--backend dynamo --table marge-validations --region eu-west-1` fills the deployed environment, replayable. Leaves the three human gates open (matches PENDING, `ctr-010` EXTRACTED, the out-of-scope queue) |
 | `eval` | Accuracy harnesses R2/R3/R5/R11 on a generated dataset |
 | `nightly` | Nightly cadence: classify the new work, recompute the margins, refresh the analytics tables |
 | `weekly` | Weekly digest: the out-of-scope work waiting for a decision, per account manager |
@@ -63,6 +64,9 @@ python3 -m marge.cli monthly --db /tmp/marge.sqlite3 --month 2026-10
 # 5. Quick asset bundle (verify the committed one) and the MCP tools
 python3 -m marge.cli assets --check
 python3 -m marge.cli mcp --self-test
+
+# 6. Fill a store with the demonstration dataset, gates left open (see §1.4)
+python3 -m marge.cli load-demo --backend sqlite --db /tmp/marge.sqlite3 --data data/generated
 ```
 
 Or run the pipeline in one shot:
@@ -86,12 +90,37 @@ python3 -m http.server 8080 --directory portal
 # Open http://localhost:8080 — the API field in the header points at http://localhost:8000
 ```
 
-The local portal exposes the three human gates:
-1. **Client matching:** approve proposed cross-source aliases.
-2. **Contracts:** review extracted Annex B clauses side-by-side with contract text; click *Validate*.
-3. **Classifications:** approve/reject out-of-scope interventions for account managers.
+The local portal exposes four screens:
+
+1. **Margins** — the margin of every client, month by month, with the two
+   loss-makers in red; *Why?* opens the decomposition down to the source lines
+   (`GET /v1/margins`, `GET /v1/margins/{client_id}/{month}/why`).
+2. **Matches** — approve proposed cross-source aliases.
+3. **Contracts** — review extracted Annex B clauses side-by-side with contract
+   text; click *Validate*.
+4. **Classifications** — approve/reject out-of-scope interventions for account
+   managers (the queue of the rows that need a decision).
 
 Dev-mode actor identities (`exec-01`, `ops-01`, `am-01`, `controller-01`, `admin-01`) and what each role sees are documented in `portal/README.md`.
+
+### 1.4 Fill a store with the demonstration dataset (replayable)
+
+```bash
+# Local: same result as `marge demo`, on a file you keep
+python3 -m marge.cli load-demo --backend sqlite --db /tmp/marge.sqlite3 --data data/generated
+
+# Deployed: the DynamoDB table of the portal API
+python3 -m marge.cli load-demo --backend dynamo --table marge-validations --region eu-west-1
+
+# And publish the five analytical tables to the curated bucket
+python3 -m marge.cli load-demo --backend dynamo --publish-s3 <curated-bucket>
+```
+
+Every row is written on its natural key, so the command can be run again at
+any time without duplicating anything. It leaves the three human gates open:
+the 49 client matches are PENDING, the seeded contract `ctr-010` stays
+EXTRACTED (its margin reads `INCOMPLETE`), and the out-of-scope work waits in
+the account manager's queue.
 
 ---
 
@@ -171,11 +200,11 @@ Open the Quick chat agent (*"Profitability Analyst"*) and try these seeded promp
 | **R1** | Ingestion of the three sources | Data coverage > 95 % | `python3 -m marge.cli demo --data data/generated --auto-validate` prints the per-month coverage KPI (97.01 – 99.51 % on the seeded dataset); `python3 -m pytest tests/unit/ingest/test_ingest.py tests/integration/test_seeded_situations.py -q` |
 | **R2** | Client identity matching | > 80 % proposed correctly; 100 % after validation | `python3 -m marge.cli eval --data data/generated` → `client match accuracy (R2) 97.30 % (target 0.80)`; `python3 -m pytest tests/unit/eval/test_match_accuracy.py tests/unit/match/test_matching.py -q` |
 | **R3** | Reading of the 12 contracts | > 90 % fields correct; source passage displayed | `python3 -m marge.cli eval --data data/generated` → `clause accuracy (R3) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_clause_accuracy.py tests/unit/contracts/test_extraction.py -q` |
-| **R4** | Unvalidated contract | Client margin flagged as `INCOMPLETE` | `python3 -m marge.cli demo --data data/generated` (no `--auto-validate`) → the client whose contract is still `EXTRACTED` shows state `INCOMPLETE` in the margin table; `python3 -m pytest tests/integration/test_seeded_situations.py -k not_validated -q` |
+| **R4** | Unvalidated contract | Client margin flagged as `INCOMPLETE` | `python3 -m marge.cli demo --data data/generated` (no `--auto-validate`) → the client whose contract is still `EXTRACTED` shows state `INCOMPLETE` in the margin table; `python3 -m marge.cli load-demo --backend sqlite` leaves `ctr-010` EXTRACTED and `c-010` INCOMPLETE; `python3 -m pytest tests/integration/test_seeded_situations.py -k not_validated -q` |
 | **R5** | 150 labelled interventions | > 90 % classification agreement | `python3 -m marge.cli eval --data data/generated` → `classification agreement (R5/R6) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_classification_agreement.py -q` |
 | **R6** | Clearly included intervention | **Never** classified as `OUT_OF_SCOPE` | `python3 -m pytest tests/unit/classify/test_classification.py -k doubtful -q`; the agreement harness itself fails on any R6 violation (`python3 -m pytest tests/unit/eval/test_classification_agreement.py -q`) |
 | **R7** | Out-of-scope hours validation | Unbilled hours and value update instantly | `python3 -m marge.cli smoke` asserts 9 h → 990 €; `python3 -m pytest tests/unit/api/test_routes_classifications.py -k approved_out_of_scope -q`; live: approve an intervention in the local portal (§1.3) and watch the total move by exactly its duration |
-| **R8** | Client margin decomposition | Decomposes to source lines; matches Annex D golden numbers | `python3 -m pytest tests/unit/calc/test_golden_annex_d.py -q` |
+| **R8** | Client margin decomposition | Decomposes to source lines; matches Annex D golden numbers | `python3 -m pytest tests/unit/calc/test_golden_annex_d.py -q`; live: open the *Margins* screen of the local portal, click *Why?* on a client (§1.3) — the posts, the hours and the source lines of `GET /v1/margins/{client_id}/{month}/why` |
 | **R9** | Hourly rate change | Past months unchanged; new version dated | `python3 -m pytest tests/integration/test_seeded_situations.py -k rate -q`; effective-dated immutable rates in `src/marge/calc/versioning.py`, admin route: `python3 -m pytest tests/unit/api/test_routes_admin.py -q` |
 | **R10** | Account Manager visibility | Sees only their clients; cannot see hourly costs | `python3 -m pytest tests/unit/api/test_rls.py tests/unit/quicksight/test_rls.py -q`; live: use the local portal as `am-01` (§1.3). The Quick rule set is manual — see `docs/RUNBOOK.md` §4 |
 | **R11** | 20 reference questions to agent | > 90 % correct answers | `python3 -m marge.cli eval --data data/generated` → `agent accuracy (R11) 100.00 % (target 0.90)`; `python3 -m pytest tests/unit/eval/test_agent_accuracy.py -q`. The live Quick chat agent is manual — see `docs/RUNBOOK.md` §4 |
