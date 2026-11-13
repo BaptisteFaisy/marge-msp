@@ -303,6 +303,7 @@ function classButton(cls, decision, label, cssClass) {
 async function refresh() {
   const active = document.querySelector(".tab.active");
   if (!active) return;
+  if (active.dataset.screen === "margins") await renderMargins();
   if (active.dataset.screen === "matches") await renderMatches();
   if (active.dataset.screen === "contracts") { await renderContracts(); }
   if (active.dataset.screen === "classifications") await renderClassifications();
@@ -327,4 +328,4 @@ $("api-base").value = urlApi !== null ? urlApi : defaultApiBase();
 
 initAuth()
   .catch(() => setStatus("auth config unavailable: dev mode"))
-  .then(() => showScreen("matches"));
+  .then(() => showScreen("margins"));

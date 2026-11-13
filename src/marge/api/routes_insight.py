@@ -15,6 +15,7 @@ manager sees only their clients and never an hourly cost (ENF-CONF-03).
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +24,8 @@ from ..calc import diff_versions, summarise_diff
 from ..domain import Month
 from ..llmlog import summarise
 from .deps import ApiContext, get_context
-from .rls import can_access_client, redact_row
+from .rls import can_access_client, filter_by_clients, redact_row
+from .serializers import serialize_margin
 
 router = APIRouter(prefix="/v1")
 
@@ -38,6 +40,32 @@ def _month_or_404(raw: str) -> Month:
 def _require_access(ctx: ApiContext, client_id: str) -> None:
     if not can_access_client(ctx.actor, client_id, ctx.store.list_clients()):
         raise HTTPException(status_code=403, detail=f"{client_id} is not in your portfolio")
+
+
+@router.get("/margins")
+def list_margins(
+    month: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    ctx: ApiContext = Depends(get_context),
+) -> list[dict[str, Any]]:
+    """The margin of every visible client, month by month (EF-CAL-01, EF-TDB-01).
+
+    Row-level filtering is the one shared by every route (EF-TDB-06): an account
+    manager sees only their own clients. Amounts are strings computed by
+    ``marge.calc`` on the server (ENF-IA-01); the per-post decomposition and the
+    source lines are one click away on the ``why`` route (ENF-TRA-01).
+    """
+    target = _month_or_404(month) if month else None
+    if client_id is not None:
+        _require_access(ctx, client_id)
+    rows = ctx.store.list_margin_months(client_id=client_id, month=target)
+    clients = ctx.store.list_clients()
+    names = {c.client_id: c.name for c in clients}
+    visible = filter_by_clients(rows, ctx.actor, clients)
+    # Newest month first, clients alphabetical within it (two stable sorts).
+    visible.sort(key=lambda row: str(row.month), reverse=True)
+    visible.sort(key=lambda row: row.client_id)
+    return [serialize_margin(row, names.get(row.client_id, "")) for row in visible]
 
 
 @router.get("/margins/{client_id}/{month}/why")
@@ -61,6 +89,7 @@ def margin_why(client_id: str, month: str, ctx: ApiContext = Depends(get_context
         "cost_total": str(latest.costs.total),
         "margin": str(latest.margin),
         "margin_rate": str(latest.margin_rate),
+        "margin_rate_percent": str((latest.margin_rate * 100).quantize(Decimal("0.1"))),
         "coverage_percent": str(latest.coverage.percent),
         "dashboard": f"/dashboards/client/{client_id}?month={target}",
         "posts": _posts(latest),

@@ -4,6 +4,8 @@ Chapter 16 lists the fourteen routes of the validation portal. Three more
 families were added deliberately and are declared here so that any new route
 still has to be announced in a pull request:
 
+* ``/v1/margins`` — the margin of every client, month by month (EF-CAL-01),
+  the list the portal shows before the decomposition;
 * ``/v1/margins/{client_id}/{month}/why`` — decomposition down to the source
   lines (ENF-TRA-01);
 * ``/v1/llm-calls`` and ``/v1/llm-calls/summary`` — the model call log
@@ -39,6 +41,7 @@ EXPECTED = {
 
 ADDITIONS = {
     ("GET", "/v1/auth/config"),
+    ("GET", "/v1/margins"),
     ("GET", "/v1/margins/{client_id}/{month}/why"),
     ("GET", "/v1/llm-calls"),
     ("GET", "/v1/llm-calls/summary"),

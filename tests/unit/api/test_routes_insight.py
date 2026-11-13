@@ -54,6 +54,45 @@ def test_why_returns_the_whole_chain(client: TestClient) -> None:
     assert body["dashboard"] == "/dashboards/client/c-001?month=2026-10"
 
 
+# ------------------------------------------------------------- margin list
+def test_margin_list_returns_the_published_figures(client: TestClient) -> None:
+    rows = client.get("/v1/margins", headers=CONTROLLER).json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["client_id"] == "c-001"
+    assert row["month"] == "2026-10"
+    assert row["revenue_total"] == "4620.00"
+    assert row["cost_total"] == "3725.00"
+    assert row["margin"] == "895.00"
+    assert row["margin_rate_percent"] == "19.4"
+    assert row["coverage_percent"] == "100.00"
+    assert row["state"] == "COMPLETE"
+    assert row["why"] == "/v1/margins/c-001/2026-10/why"
+
+
+def test_margin_list_filters_on_the_month(client: TestClient) -> None:
+    assert client.get("/v1/margins?month=2026-09", headers=CONTROLLER).json() == []
+    assert len(client.get("/v1/margins?month=2026-10", headers=CONTROLLER).json()) == 1
+
+
+def test_margin_list_rejects_a_bad_month(client: TestClient) -> None:
+    assert client.get("/v1/margins?month=2026-99", headers=CONTROLLER).status_code == 422
+
+
+def test_margin_list_is_scoped_to_the_portfolio(client: TestClient) -> None:
+    assert client.get("/v1/margins", headers=OUTSIDER).json() == []
+    assert client.get("/v1/margins?client_id=c-001", headers=OUTSIDER).status_code == 403
+
+
+def test_why_returns_the_whole_chain_for_a_manager(client: TestClient) -> None:
+    """The margin list and the decomposition agree on the same figures."""
+    listed = client.get("/v1/margins", headers=CONTROLLER).json()[0]
+    why = client.get("/v1/margins/c-001/2026-10/why", headers=CONTROLLER).json()
+    assert listed["margin"] == why["margin"]
+    assert listed["revenue_total"] == why["revenue_total"]
+    assert listed["cost_total"] == why["cost_total"]
+
+
 def test_why_posts_add_up_to_the_published_totals(client: TestClient) -> None:
     body = client.get("/v1/margins/c-001/2026-10/why", headers=CONTROLLER).json()
     revenue = sum(
