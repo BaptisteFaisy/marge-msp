@@ -3,7 +3,51 @@
 **Compte** `710332178565` · **Région** `eu-west-1` (Irlande) · **Environnement** `dev`
 État vérifié le **11 novembre 2026**. Aucune machine : tout est serverless.
 
-## 1. Ce qui est déployé (7 stacks CloudFormation)
+## 0. Procédure de déploiement (13 novembre 2026)
+
+Une seule commande, rejouable :
+
+```bash
+AWS_REGION=eu-west-1 MARGE_AUTH_MODE=cognito bash scripts/deploy.sh
+```
+
+Elle enchaîne la construction des paquets Lambda, la synthèse CDK, le
+déploiement des huit stacks et le chargement du jeu de démonstration. Les
+deux variables d'environnement ne sont pas facultatives :
+
+| Variable | Pourquoi |
+|---|---|
+| `AWS_REGION` | la CLI CDK ne lit pas `CDK_DEFAULT_REGION` : sans elle, elle **défaut sur us-east-1** et crée les stacks dans la mauvaise région |
+| `MARGE_AUTH_MODE=cognito` | `infra/cdk/app.py` lit cette variable : sans elle, le portail déployé revient au mode `dev` (identité dans les en-têtes `X-Actor-*`), c'est-à-dire aucune authentification |
+
+Le jeu de démonstration se charge aussi seul, sans redéploiement :
+
+```bash
+python3 -m marge.cli load-demo --backend dynamo \
+  --table marge-validations --region eu-west-1 \
+  --publish-s3 margedatalake-margedevcurated4fd643b0-fp6unqp88h0e
+```
+
+La commande est **rejouable** : chaque ligne est écrite sur sa clé naturelle,
+donc la recharger ne duplique rien.
+
+Les identifiants des juges ne sont jamais dans le dépôt : ils sont générés et
+conservés dans AWS Secrets Manager.
+
+```bash
+python3 scripts/create_judge_account.py --region eu-west-1 --rotate-demo-users
+aws secretsmanager get-secret-value --secret-id marge/demo/credentials \
+  --region eu-west-1 --query SecretString --output text
+```
+
+Et pour tout supprimer :
+
+```bash
+bash scripts/teardown.sh        # les stacks et les ressources conservées (RETAIN)
+bash scripts/teardown.sh --data # le jeu de démonstration seulement
+```
+
+## 1. Ce qui est déployé (8 stacks CloudFormation)
 
 | Stack | Contenu | État |
 |---|---|---|
@@ -14,6 +58,7 @@
 | `MargeOrchestration` | 4 Lambda de jobs + Step Functions `marge-dev-nightly` + 3 plannifications EventBridge | `CREATE_COMPLETE` |
 | `MargeObservability` | 4 alarmes CloudWatch, tableau de bord `marge-dev-supervision`, sujet SNS | `CREATE_COMPLETE` |
 | `MargeQuickSight` | Bucket d'actifs + rôle de service Quick Sight (**aucun abonnement créé**) | `CREATE_COMPLETE` |
+| `MargeBudget` | Budget AWS mensuel (5 $) + sujet SNS d'alerte à 80 % | `CREATE_COMPLETE` |
 
 ## 2. URL et points d'entrée
 

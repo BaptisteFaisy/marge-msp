@@ -128,29 +128,41 @@ the account manager's queue.
 
 For online evaluation of the hosted system:
 
-- **Portal URL:** `https://portal.marge-msp.demo.aws` *(placeholder — the final CloudFront URL is filled in at deployment and pasted into the Devpost form; Cognito-authenticated)*
-- **Amazon Quick Console:** the Quick account URL of the deployment region *(placeholder — filled in at deployment)*
+- **Portal URL:** `https://d3n1e2aqabg966.cloudfront.net` — the CloudFront
+  distribution of the deployment: the static portal and the API share one
+  origin, so nothing has to be installed. Cognito-authenticated.
+- **GitHub Pages mirror:** `https://tradoooo.github.io/marge-msp/` — the same
+  static portal, served from the repository.
+- **Amazon Quick Console:** the Quick account URL of the deployment region
+  *(filled in at deployment — see `docs/RUNBOOK.md` §4)*.
 
 ### Demo Credentials (EF-ADM-03)
 
-> Login names below are the demo identities provisioned at deployment by the
-> portal stack (`infra/cdk/portal.py` — Cognito user pool and the five role
-> groups, see `docs/RUNBOOK.md` §2); the shared password is provisioned at
-> deployment and pasted into the Devpost test instructions.
-> Placeholder shown here: `Marge-Hackathon-2026!` — rotated after judging ends
-> (22 January 2027). For the local portal in dev auth mode, the header
-> identities are listed in `portal/README.md`.
+> The logins and their passwords are **not** in this repository. They are
+> provisioned by `scripts/create_judge_account.py`, kept in **AWS Secrets
+> Manager**, and transmitted to the judges in the Devpost test-instructions
+> form. The script prints the ARN of the secret, never the password:
+>
+> ```bash
+> python3 scripts/create_judge_account.py --region eu-west-1 --rotate-demo-users
+> aws secretsmanager get-secret-value --secret-id marge/demo/credentials \
+>   --region eu-west-1 --query SecretString --output text
+> ```
+>
+> For the local portal in dev auth mode, the header identities are listed in
+> `portal/README.md`.
 
 | Role | Portal Login | Quick Login | What they can see / do |
 |---|---|---|---|
-| **Executive** | `exec@marge-demo.internal` | `marge-exec` (Professional) | All clients; full margin, high-level review, scenarios |
-| **Ops Director** | `ops@marge-demo.internal` | `marge-ops` (Professional) | All clients; effort by category and level, ticket breakdown |
-| **Account Manager 1** | `am1@marge-demo.internal` | `marge-am1` (Professional + RLS) | **Only assigned clients** (Durand, Acme…); validates out-of-scope hits; hourly costs hidden |
-| **Account Manager 2** | `am2@marge-demo.internal` | `marge-am2` (Professional + RLS) | **Only assigned clients**; completely disjoint view from AM 1 |
-| **Financial Controller** | `ctrl@marge-demo.internal` | `marge-ctrl` (Enterprise) | All clients; rate cards, tooling rules, contract validation, client matching |
-| **Administrator** | `admin@marge-demo.internal` | `marge-admin` (Enterprise) | Technical settings, data coverage KPI, ingestion triggers |
+| **Judge** | `judge@marge.demo` | — | Read and validate: every client, the margins, the three queues |
+| **Executive** | `director-01@marge.demo` | `marge-exec` (Professional) | All clients; full margin, high-level review, scenarios |
+| **Ops Director** | `ops-01@marge.demo` | `marge-ops` (Professional) | All clients; effort by category and level, ticket breakdown |
+| **Account Manager 1** | `am-01@marge.demo` | `marge-am1` (Professional + RLS) | **Only assigned clients**; validates out-of-scope hits; hourly costs hidden |
+| **Financial Controller** | `controller-01@marge.demo` | `marge-ctrl` (Enterprise) | All clients; rate cards, tooling rules, contract validation, client matching |
+| **Administrator** | `admin-01@marge.demo` | `marge-admin` (Enterprise) | Technical settings, data coverage KPI, ingestion triggers |
 
-*Password for all demo accounts:* `Marge-Hackathon-2026!` (rotated after the judging period on 22 January 2027).
+*Passwords: generated at deployment, stored in AWS Secrets Manager, rotated
+when the judging period ends (22 January 2027).*
 
 ---
 
