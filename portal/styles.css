@@ -103,6 +103,18 @@ button.link { background: none; border: none; color: var(--accent); padding: 2px
 .contract-picker { list-style: none; margin: 0; padding: 0; }
 .contract-picker li { padding: 2px 0; }
 
+.picker { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.picker label { color: var(--muted); font-size: 13px; }
+.picker select {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 14px;
+}
+
+tr.loss td { color: var(--ko); font-weight: 600; }
+
 .actions { display: flex; gap: 8px; margin-top: 10px; }
 
 .error { color: var(--ko); }

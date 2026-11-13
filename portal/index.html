@@ -29,13 +29,22 @@
   </header>
 
   <nav class="tabs" role="tablist">
-    <button class="tab active" data-screen="matches" role="tab">Matches</button>
+    <button class="tab active" data-screen="margins" role="tab">Margins</button>
+    <button class="tab" data-screen="matches" role="tab">Matches</button>
     <button class="tab" data-screen="contracts" role="tab">Contracts</button>
     <button class="tab" data-screen="classifications" role="tab">Classifications</button>
   </nav>
 
   <main>
-    <section id="screen-matches" class="screen active">
+    <section id="screen-margins" class="screen active">
+      <h2>Margin by client and month (EF-CAL-01)</h2>
+      <p class="hint">Computed by the code on the server, never by a model. Click <em>Why?</em> to
+        decompose a figure down to its source lines.</p>
+      <div id="margins-list" class="content"></div>
+      <div id="margin-detail" class="content"></div>
+    </section>
+
+    <section id="screen-matches" class="screen">
       <h2>Client identity matches (EF-REF-01)</h2>
       <p class="hint">The model proposes, a human decides. Nothing is used by the calculation before approval.</p>
       <div id="matches-list" class="content"></div>
@@ -58,6 +67,7 @@
   <footer class="statusbar"><span id="status"></span></footer>
   <script src="config.js"></script>
   <script src="auth.js"></script>
+  <script src="margins.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

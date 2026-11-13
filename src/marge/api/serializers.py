@@ -80,6 +80,32 @@ def serialize_tooling(cost: ToolingCost) -> dict[str, Any]:
     }
 
 
+def serialize_margin(row: Any, client_name: str = "") -> dict[str, Any]:
+    """One row of ``marge_client_mois`` (EF-CAL-01, Annex A, EF-TDB-01).
+
+    Amounts stay strings so no float rounds a figure on the way out. The
+    per-post decomposition and the source lines live on
+    ``/v1/margins/{client_id}/{month}/why`` (ENF-TRA-01).
+    """
+    return {
+        "client_id": row.client_id,
+        "client_name": client_name,
+        "account_manager_id": row.account_manager_id,
+        "month": str(row.month),
+        "revenue_total": str(row.revenue.total),
+        "cost_total": str(row.costs.total),
+        "margin": str(row.margin),
+        "margin_rate": str(row.margin_rate),
+        "margin_rate_percent": str((row.margin_rate * 100).quantize(Decimal("0.1"))),
+        "coverage_percent": str(row.coverage.percent),
+        "state": row.state.value,
+        "is_estimate": row.is_estimate,
+        "calc_version": row.calc_version,
+        "incomplete_reason": row.incomplete_reason,
+        "why": f"/v1/margins/{row.client_id}/{row.month}/why",
+    }
+
+
 def _serialize_spans(spans: dict[str, SourceSpan]) -> dict[str, dict[str, Any]]:
     return {
         name: {
