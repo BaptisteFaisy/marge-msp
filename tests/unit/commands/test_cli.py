@@ -39,7 +39,27 @@ def test_every_command_has_a_configure_hook() -> None:
 
 def test_discover_commands_finds_the_expected_set() -> None:
     found = set(discover_commands())
-    assert {"smoke", "version", "demo", "generate", "eval"} <= found
+    assert {"smoke", "version", "demo", "generate", "eval", "load-demo"} <= found
+
+
+def test_open_store_selects_the_backend(monkeypatch) -> None:
+    """``load-demo`` writes to DynamoDB, the demo to SQLite: one switch."""
+    from marge import store as store_pkg
+
+    created: dict[str, str] = {}
+
+    class FakeDynamo:
+        def __init__(self, table_name, region_name=None):
+            created["table"] = table_name
+            created["region"] = region_name
+
+    monkeypatch.setattr(store_pkg, "DynamoStore", FakeDynamo)
+    opened = store_pkg.open_store(
+        "unused.sqlite3", backend="dynamo", table_name="marge-validations", region_name="eu-west-1"
+    )
+    assert isinstance(opened, FakeDynamo)
+    assert created == {"table": "marge-validations", "region": "eu-west-1"}
+    assert isinstance(store_pkg.open_store("local.sqlite3"), store_pkg.SqliteStore)
 
 
 def test_parser_accepts_the_flags_of_every_command() -> None:

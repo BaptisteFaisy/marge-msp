@@ -14,6 +14,16 @@ def test_list_pending_classifications(client: TestClient, hdr) -> None:
     assert all(row["status"] == "PENDING" for row in rows)
 
 
+def test_list_classifications_needs_validation_filter(client: TestClient, hdr) -> None:
+    """The validation queue of the account manager is the out-of-scope work."""
+    queued = client.get(
+        "/v1/classifications?status=pending&needs_validation=true", headers=hdr("ACCOUNT_MANAGER", "am-02")
+    )
+    assert {row["intervention_id"] for row in queued.json()} == {"wl-101", "wl-102"}
+    auto = client.get("/v1/classifications?status=pending&needs_validation=false", headers=hdr("CONTROLLER"))
+    assert auto.json() == []
+
+
 def test_list_classifications_status_case_insensitive(client: TestClient, hdr) -> None:
     response = client.get("/v1/classifications?status=PENDING", headers=hdr("CONTROLLER"))
     assert response.status_code == 200
