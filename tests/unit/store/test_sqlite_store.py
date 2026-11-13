@@ -168,6 +168,39 @@ def test_serde_keeps_tuple_and_enum_types() -> None:
     assert restored.status == ContractStatus.VALIDATED
 
 
+def test_serde_rebuilds_the_source_spans() -> None:
+    """``dict[str, SourceSpan]`` must come back as domain objects, not dicts.
+
+    The API serialiser reads ``span.quote``: a plain dictionary makes the
+    whole contracts screen fail with an AttributeError.
+    """
+    from marge.domain import SourceSpan
+    from marge.store import serde
+
+    fields = ContractFields(services_included=("a",))
+    fields.spans["monthly_subscription"] = SourceSpan(
+        quote="2 500 EUR par mois", page=1, char_start=12, char_end=32
+    )
+    restored = serde.decode(Contract, serde.encode(Contract("ctr-x", "c-001", 1, fields)))
+    span = restored.fields.spans["monthly_subscription"]
+    assert isinstance(span, SourceSpan)
+    assert span.quote == "2 500 EUR par mois"
+    assert span.page == 1
+    assert span.char_start == 12
+
+
+def test_contract_round_trip_keeps_the_source_spans(store: SqliteStore) -> None:
+    from marge.domain import SourceSpan
+
+    fields = ContractFields(monthly_subscription=Decimal("2500"))
+    fields.spans["monthly_subscription"] = SourceSpan(quote="2 500 EUR par mois", page=1)
+    store.save_contract(Contract("ctr-002", "c-001", 1, fields, ContractStatus.EXTRACTED))
+    stored = store.get_contract("ctr-002")
+    assert stored is not None
+    assert isinstance(stored.fields.spans["monthly_subscription"], SourceSpan)
+    assert stored.fields.spans["monthly_subscription"].quote == "2 500 EUR par mois"
+
+
 def test_intervention_hours_are_decimal(store: SqliteStore) -> None:
     store.save_interventions(
         [

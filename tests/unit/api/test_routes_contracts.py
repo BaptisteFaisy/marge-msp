@@ -116,3 +116,31 @@ def test_validate_contract_forbidden_for_account_manager(client: TestClient, hdr
 def test_validate_contract_missing_reason_is_422(client: TestClient, hdr) -> None:
     response = client.post("/v1/contracts/ctr-002/validate", headers=hdr("CONTROLLER"), json={})
     assert response.status_code == 422
+
+
+def test_contracts_survive_a_persisting_store_round_trip(tmp_path) -> None:
+    """Regression: the list route must not 500 after a real store round trip.
+
+    The SQLite and DynamoDB stores both persist through ``serde``; a
+    ``dict[str, SourceSpan]`` that came back as plain dicts used to crash the
+    serialiser and hide every contract from the controller.
+    """
+    from decimal import Decimal
+
+    from marge.api import create_app
+    from marge.domain import Client, Contract, ContractFields, ContractStatus, SourceSpan
+    from marge.store import SqliteStore
+
+    fields = ContractFields(monthly_subscription=Decimal("2500"), extra_hour_rate=Decimal("95"))
+    fields.spans["monthly_subscription"] = SourceSpan(quote="2 500 EUR par mois", page=1)
+    store = SqliteStore(tmp_path / "marge.sqlite3")
+    try:
+        store.upsert_clients([Client("c-002", "Dupont Logistics", "am-02")])
+        store.save_contract(Contract("ctr-002", "c-002", 1, fields, ContractStatus.EXTRACTED))
+        app = TestClient(create_app(store))
+        response = app.get("/v1/contracts", headers={"X-Actor-Id": "c", "X-Actor-Role": "CONTROLLER"})
+        assert response.status_code == 200
+        span = response.json()[0]["fields"]["spans"]["monthly_subscription"]
+        assert span["quote"] == "2 500 EUR par mois"
+    finally:
+        store.close()
