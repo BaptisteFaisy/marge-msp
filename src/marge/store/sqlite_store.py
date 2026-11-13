@@ -261,14 +261,16 @@ class SqliteStore:
         return self._rows("rates", Rate)
 
     def save_tooling_costs(self, costs: Sequence[ToolingCost]) -> int:
-        rows = [(f"{c.tool}:{i}", c) for i, c in enumerate(costs)]
+        # The tool is the natural key (docs/DATA-FORMATS.md: one row per tool).
+        rows = [(c.tool, c) for c in costs]
         return self._put_many("tooling_costs", rows)
 
     def list_tooling_costs(self) -> list[ToolingCost]:
         return self._rows("tooling_costs", ToolingCost)
 
     def save_aws_costs(self, costs: Sequence[AwsCost]) -> int:
-        rows = [(f"{c.aws_account_id}:{c.month}:{i}", c) for i, c in enumerate(costs)]
+        # One account, one month (docs/DATA-FORMATS.md).
+        rows = [(f"{c.aws_account_id}:{c.month}", c) for c in costs]
         return self._put_many("aws_costs", rows)
 
     def list_aws_costs(self, month: Month | None = None) -> list[AwsCost]:
@@ -283,7 +285,8 @@ class SqliteStore:
         return [i for i in rows if month is None or i.month == month]
 
     def save_penalties(self, penalties: Sequence[Penalty]) -> int:
-        rows = [(f"{p.client_id}:{p.month}:{i}", p) for i, p in enumerate(penalties)]
+        # One client, one month (docs/DATA-FORMATS.md).
+        rows = [(f"{p.client_id}:{p.month}", p) for p in penalties]
         return self._put_many("penalties", rows)
 
     def list_penalties(self, month: Month | None = None) -> list[Penalty]:
@@ -306,9 +309,10 @@ class SqliteStore:
         return rows
 
     def save_effort_slices(self, rows: Sequence[EffortSlice]) -> int:
+        # The grain of Annex A: one client, one month, one category, one level
+        # and one class.
         keys = [
-            (f"{r.client_id}:{r.month}:{r.category}:{r.level.value}:{r.work_class.value}:{i}", r)
-            for i, r in enumerate(rows)
+            (f"{r.client_id}:{r.month}:{r.category}:{r.level.value}:{r.work_class.value}", r) for r in rows
         ]
         return self._put_many("effort_slices", keys)
 
