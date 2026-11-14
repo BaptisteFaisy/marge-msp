@@ -40,7 +40,7 @@ GOLDEN_CLIENT_ID = "c-001"
 def golden_client() -> Client:
     return Client(
         client_id=GOLDEN_CLIENT_ID,
-        name="Durand Industries",
+        name="Calder Logistics",
         account_manager_id="am-01",
         sector="industry",
         onboarded_on=date(2024, 3, 1),
@@ -50,7 +50,7 @@ def golden_client() -> Client:
 
 def golden_contract() -> Contract:
     fields = ContractFields(
-        customer_name="Durand Industries",
+        customer_name="Calder Logistics",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
         renewal_terms="tacite, 12 mois",

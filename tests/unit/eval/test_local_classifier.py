@@ -21,7 +21,7 @@ from marge.eval.local_classifier import classify
 
 def _contract(*exclusions: str) -> Contract:
     fields = ContractFields(
-        customer_name="DURAND INDUSTRIES SAS",
+        customer_name="CALDER LOGISTICS SAS",
         services_included=(
             "Supervision 24/7 de l'infrastructure",
             "Sauvegarde et restauration des données",

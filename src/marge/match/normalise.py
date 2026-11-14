@@ -49,7 +49,7 @@ def normalise_name(text: str) -> str:
 
 
 def name_key(text: str) -> str:
-    """Aggressive key: no spaces at all (``Durand Ind.`` -> ``durandind``)."""
+    """Aggressive key: no spaces at all (``Calder`` -> ``calderind``)."""
     return normalise_name(text).replace(" ", "")
 
 

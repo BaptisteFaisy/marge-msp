@@ -16,7 +16,7 @@ from marge.contracts import BedrockDataAutomation, DataAutomationError
 PROJECT = "arn:aws:bedrock:eu-west-1:710332178565:data-automation-project/marge-contracts"
 RESULT = {
     "analysis": {
-        "CUSTOMER_NAME": {"value": "Durand Industries", "beginOffset": 12, "endOffset": 40, "page": 1},
+        "CUSTOMER_NAME": {"value": "Calder Logistics", "beginOffset": 12, "endOffset": 40, "page": 1},
         "MONTHLY_SUBSCRIPTION": {"value": "4 000,00 EUR", "beginOffset": 900, "page": 2},
         "INCLUDED_HOURS_PER_MONTH": {"value": "50", "page": 2},
         "SERVICES_INCLUDED": {"value": ["Supervision 24/7", "Sauvegarde"], "page": 3},
@@ -110,7 +110,7 @@ def test_an_s3_uri_is_passed_through_unchanged() -> None:
 def test_polling_waits_until_success() -> None:
     runtime = FakeRuntime(states=["Created", "InProgress", "Success"])
     fields = _client(runtime=runtime).extract("contracts/ctr-001-v1.pdf")
-    assert fields.customer_name == "Durand Industries"
+    assert fields.customer_name == "Calder Logistics"
 
 
 def test_a_service_error_is_raised_not_swallowed() -> None:

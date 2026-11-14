@@ -122,7 +122,7 @@ def trap_contract() -> Contract:
     No clause carries a figure, so any amount in an answer is invented.
     """
     fields = ContractFields(
-        customer_name="Durand Industries",
+        customer_name="Calder Logistics",
         start_date=date(2026, 1, 1),
         end_date=date(2026, 12, 31),
         services_included=(

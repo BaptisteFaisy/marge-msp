@@ -25,19 +25,19 @@ from .profiles import (
 CLIENTS: tuple[ClientProfile, ...] = (
     client(
         client_id="c-001",
-        name="Durand Industries",
+        name="Calder Logistics",
         sector="industry",
         account_manager_id="am-01",
         onboarded_on=date(2024, 1, 11),
         managed_resource_count=40,
-        itsm_alias="DURIND",
+        itsm_alias="CALDER",
         billing_alias="111122223333",
-        invoice_alias="durand-industries",
+        invoice_alias="calder-logistics",
         contract=spec(
             contract_id="ctr-001",
             client_id="c-001",
             version=1,
-            customer_name="DURAND INDUSTRIES SAS",
+            customer_name="CALDER LOGISTICS SAS",
             start_date=date(2024, 1, 11),
             end_date=date(2027, 1, 10),
             renewal_terms="Tacite reconduction pour une période de 12 mois",

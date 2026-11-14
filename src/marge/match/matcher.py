@@ -33,7 +33,7 @@ class MappingResolver:
         for alias in self._aliases:
             # Three keys per alias: its source id, its normalised name, and the
             # normalised name of its source id (billing accounts are often
-            # slugified: "durand-industries-prod").
+            # slugified: "calder-logistics-prod").
             self._by_name[alias.key] = alias.client_id
             self._by_name[(alias.source, normalise_name(alias.name_variant))] = alias.client_id
             self._by_name[(alias.source, normalise_name(alias.source_id))] = alias.client_id

@@ -469,7 +469,7 @@ Elle porte les définitions du chapitre 12, les synonymes (« rentabilité », �
 ### 14.5 Exemples de questions
 
 - « Quels clients sont sous 20 % de marge ce trimestre ? »
-- « Pourquoi la marge du client Durand a-t-elle baissé en octobre ? »
+- « Pourquoi la marge du client Calder Logistics a-t-elle baissé en octobre ? »
 - « Combien d'heures hors périmètre avons-nous faites pour le client Leroy, et sur quels sujets ? »
 - « Le contrat du client Martin inclut-il les mises à jour de version de base de données ? »
 - « Quels contrats se renouvellent dans les 90 jours avec une marge en baisse ? »

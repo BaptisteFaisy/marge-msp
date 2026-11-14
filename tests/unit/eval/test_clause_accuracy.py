@@ -30,7 +30,7 @@ def _contracts(root: Path) -> list[Contract]:
 
 def test_extractor_reads_the_scalar_fields_of_a_contract(generated):
     fields = extract_fields((generated / "contracts" / "ctr-001-v1.txt").read_text("utf-8"))
-    assert fields.customer_name == "DURAND INDUSTRIES SAS"
+    assert fields.customer_name == "CALDER LOGISTICS SAS"
     assert fields.start_date == date(2024, 1, 11)
     assert fields.monthly_subscription == Decimal("5000.00")
     assert fields.extra_hour_rate == Decimal("110.00")
@@ -72,7 +72,7 @@ def _ctr001_expected() -> list[dict]:
         {
             "contract_id": "ctr-001",
             "version": 1,
-            "customer_name": "DURAND INDUSTRIES SAS",
+            "customer_name": "CALDER LOGISTICS SAS",
             "start_date": "2024-01-11",
             "end_date": "2027-01-10",
             "renewal_terms": "Tacite reconduction pour une période de 12 mois",

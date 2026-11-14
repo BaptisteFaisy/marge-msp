@@ -19,7 +19,7 @@ from marge.contracts.schema import FIELD_PLAN, field_plan_payload, parse_money, 
 from marge.domain import ContractStatus
 
 SAMPLE = """CONTRAT DE SERVICES MANAGÉS
-Client : Durand Industries
+Client : Calder Logistics
 Date d'effet : 01/01/2026
 Date de fin : 31/12/2026
 Reconduction : tacite, 12 mois
@@ -82,7 +82,7 @@ def test_field_plan_payload_is_json_serialisable() -> None:
 
 def test_local_extractor_reads_every_key_field() -> None:
     fields = extract_fields(SAMPLE.encode("utf-8"), "ctr-001-v1.pdf")
-    assert fields.customer_name == "Durand Industries"
+    assert fields.customer_name == "Calder Logistics"
     assert fields.monthly_subscription == Decimal("4000.00")
     assert fields.extra_hour_rate == Decimal("110.00")
     assert fields.included_hours_per_month == Decimal("50.00")

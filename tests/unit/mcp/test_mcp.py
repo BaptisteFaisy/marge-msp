@@ -13,7 +13,7 @@ from marge.mcp import McpContext, handle_request
 
 def _ctx(role: ActorRole = ActorRole.CONTROLLER, actor: str = "controller-01") -> McpContext:
     store = FakeStore()
-    store.upsert_clients([Client("c-001", "Durand Industries", "am-01")])
+    store.upsert_clients([Client("c-001", "Calder Logistics", "am-01")])
     return McpContext(store=store, actor_id=actor, role=role, itsm=FakeItsm())
 
 

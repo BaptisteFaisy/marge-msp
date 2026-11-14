@@ -17,15 +17,15 @@ from marge.ingest import (
 from marge.match import Alias, MappingResolver
 
 ALIASES = [
-    Alias("c-001", SourceKind.ITSM, "DURIND", "Durand Ind."),
-    Alias("c-001", SourceKind.BILLING, "111122223333", "durand-industries-prod"),
-    Alias("c-001", SourceKind.INVOICE, "DURIND", "Durand Ind."),
+    Alias("c-001", SourceKind.ITSM, "CALDER", "Calder"),
+    Alias("c-001", SourceKind.BILLING, "111122223333", "calder-logistics-prod"),
+    Alias("c-001", SourceKind.INVOICE, "CALDER", "Calder"),
 ]
 
 ROW = {
     "intervention_id": "wl-001",
     "ticket_id": "t-001",
-    "customer_ref": "DURIND",
+    "customer_ref": "CALDER",
     "occurred_on": "2026-10-03",
     "category": "Supervision",
     "ticket_type": "incident",
@@ -94,7 +94,7 @@ def test_aws_cost_is_converted_to_the_reporting_currency() -> None:
         "currency": "USD",
         "rebilled_amount": "2000",
         "kind": "CLIENT_ACCOUNT",
-        "client_ref": "durand-industries-prod",
+        "client_ref": "calder-logistics-prod",
     }
     cost = next(iter(load_aws_costs([row], resolver, rates)))
     assert cost.cost == Decimal("500.00")
@@ -125,7 +125,7 @@ def test_invoices_are_loaded_with_their_hours() -> None:
         [
             {
                 "invoice_id": "inv-1",
-                "customer_ref": "DURIND",
+                "customer_ref": "CALDER",
                 "month": "2026-10",
                 "kind": "EXTRA_HOURS",
                 "amount": "550",

@@ -48,7 +48,7 @@ def test_client_round_trip(store: SqliteStore) -> None:
     store.upsert_clients([golden_client()])
     client = store.get_client("c-001")
     assert client is not None
-    assert client.name == "Durand Industries"
+    assert client.name == "Calder Logistics"
     assert client.managed_resource_count == 40
 
 

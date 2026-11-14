@@ -170,7 +170,7 @@ when the judging period ends (22 January 2027).*
 
 ### 3.1 Five Dashboards
 1. **Overview (EF-TDB-01):** total margin, client ranking by margin rate, clients below threshold (< 20 %), 6-month trend. Spot the two loss-making clients.
-2. **Client Sheet (EF-TDB-02):** pick a client (e.g. Durand Industries); drill into revenue breakdown, cost by nature, hours by seniority level.
+2. **Client Sheet (EF-TDB-02):** pick a client (e.g. Calder Logistics); drill into revenue breakdown, cost by nature, hours by seniority level.
 3. **Unbilled Hours (EF-TDB-03):** out-of-scope work and allowance overruns in hours and euro value, with their validation status.
 4. **Renewals within 90 Days (EF-TDB-04):** identify the profitable client renewing in 60 days with a dropping margin.
 5. **Effort Breakdown (EF-TDB-05):** costiest work categories per client.
@@ -182,19 +182,19 @@ Check **Row-Level Security (EF-TDB-06)**: sign in as `marge-am1` — only AM 1's
 Open the Quick chat agent (*"Profitability Analyst"*) and try these seeded prompts:
 
 - *"Which clients are below 20% margin this quarter?"* → returns ranked list with dashboard links.
-- *"Why did client Durand's margin drop in October?"* → decomposes cost: labor spike, ticket count, out-of-scope volume.
+- *"Why did Calder Logistics' margin drop in October?"* → decomposes cost: labor spike, ticket count, out-of-scope volume.
 - *"Does client Martin's contract include database engine version upgrades?"* → cites the exact exclusion clause from the contract.
 - *"What did client Leroy cost us over the last 6 months, and on what topics?"* → breaks down effort by category.
 - *"Which contracts renew within 90 days with a falling margin?"* → returns the renewing client.
 
 ### 3.3 Scenarios (EF-AGT-05)
 
-- In the agent or scenario panel: simulate an **8 % price increase** on client Durand. Observe the margin recovery.
+- In the agent or scenario panel: simulate an **8 % price increase** on Calder Logistics. Observe the margin recovery.
 - Simulate a **20 % reduction in ticket volume** (e.g. after proactive automation).
 
 ### 3.4 MCP Actions (EF-AGT-04)
 
-- Ask the agent: *"Create a renegotiation task for client Durand with the cost dossier attached."* → calls `create_renegotiation_task`, returns task id in the ITSM tool.
+- Ask the agent: *"Create a renegotiation task for Calder Logistics with the cost dossier attached."* → calls `create_renegotiation_task`, returns task id in the ITSM tool.
 - Ask the agent: *"Prepare a draft extra billing proposal for client Leroy for October unbilled hours."* → calls `draft_extra_billing_proposal`, returns a draft invoice proposal with cited clauses.
 
 ### 3.5 Scheduled Review (EF-REV-01..02)
