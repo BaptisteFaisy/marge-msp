@@ -18,7 +18,7 @@ from marge.api.rls import (
 from marge.domain import ActorRole, Client, Rate, WorkLevel
 
 CLIENTS = (
-    Client(client_id="c-001", name="Durand", account_manager_id="am-01"),
+    Client(client_id="c-001", name="Calder", account_manager_id="am-01"),
     Client(client_id="c-002", name="Dupont", account_manager_id="am-02"),
 )
 AM = Actor(actor_id="am-01", role=ActorRole.ACCOUNT_MANAGER)

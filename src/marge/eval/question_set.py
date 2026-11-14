@@ -158,7 +158,7 @@ QUESTIONS: tuple[Question, ...] = (
     ),
     Question(
         "q04",
-        "Quel est le taux de marge du client Durand Industries en octobre 2026 ?",
+        "Quel est le taux de marge du client Calder Logistics en octobre 2026 ?",
         SCALAR,
         DASHBOARD_MARGIN,
         _q04,
@@ -172,7 +172,7 @@ QUESTIONS: tuple[Question, ...] = (
     ),
     Question(
         "q06",
-        "Variation du taux de marge de Durand Industries entre septembre et octobre 2026 ?",
+        "Variation du taux de marge de Calder Logistics entre septembre et octobre 2026 ?",
         SCALAR,
         DASHBOARD_MARGIN,
         _q06,

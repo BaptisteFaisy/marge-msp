@@ -138,12 +138,12 @@ def test_client_round_trip_and_account_manager_filter(store: DynamoStore) -> Non
     c2 = Client("c-002", "Beta Corp", "am-02", managed_resource_count=12)
     assert store.upsert_clients([c1, c2]) == 2
     loaded = store.get_client("c-001")
-    assert loaded is not None and loaded.name == "Durand Industries"
+    assert loaded is not None and loaded.name == "Calder Logistics"
     assert [c.client_id for c in store.list_clients("am-02")] == ["c-002"]
 
 
 def test_matches_round_trip_and_pending_gsi_query(store: DynamoStore, fake_client: FakeDynamoClient) -> None:
-    m1 = ClientMatch("m-1", "c-001", SourceKind.ITSM, "DURIND", Decimal("0.95"), DecisionStatus.PENDING)
+    m1 = ClientMatch("m-1", "c-001", SourceKind.ITSM, "CALDER", Decimal("0.95"), DecisionStatus.PENDING)
     m2 = ClientMatch("m-2", "c-002", SourceKind.ITSM, "BETA", Decimal("0.99"), DecisionStatus.APPROVED)
     assert store.save_matches([m1, m2]) == 2
     pending = store.list_matches(pending_only=True)

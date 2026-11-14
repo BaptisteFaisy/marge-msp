@@ -35,7 +35,7 @@ durations are decimal **hours** (`2.5` = 2 h 30).
 ```json
 {
   "client_id": "c-001",
-  "name": "Durand Industries",
+  "name": "Calder Logistics",
   "account_manager_id": "am-01",
   "sector": "industry",
   "onboarded_on": "2024-03-01",
@@ -45,9 +45,9 @@ durations are decimal **hours** (`2.5` = 2 h 30).
 
 ### `aliases.json` — what each source calls the client (drives EF-REF-01)
 ```json
-{"client_id": "c-001", "source": "itsm", "source_id": "DURIND", "name_variant": "Durand Ind."}
-{"client_id": "c-001", "source": "billing", "source_id": "111122223333", "name_variant": "durand-industries-prod"}
-{"client_id": "c-001", "source": "contract", "source_id": "ctr-001", "name_variant": "DURAND INDUSTRIES SAS"}
+{"client_id": "c-001", "source": "itsm", "source_id": "CALDER", "name_variant": "Calder"}
+{"client_id": "c-001", "source": "billing", "source_id": "111122223333", "name_variant": "calder-logistics-prod"}
+{"client_id": "c-001", "source": "contract", "source_id": "ctr-001", "name_variant": "CALDER LOGISTICS SAS"}
 ```
 `source` is one of `itsm | billing | contract | invoice`.
 

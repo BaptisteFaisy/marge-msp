@@ -95,7 +95,7 @@ Les six familles de routes du chapitre 16 répondent **200** derrière CloudFron
 
 Clients les moins rentables en octobre : Marchand Distribution −31,7 %,
 Blanchard Chimie −30,8 %, Girard BTP 9,3 %, Leroy Logistique 14,9 %,
-**Durand Industries 19,4 %** — ce dernier reproduit exactement l'annexe D.
+**Calder Logistics 19,4 %** — ce dernier reproduit exactement l'annexe D.
 
 ## 4. Appels réels à un service IA AWS (exigence du ch. 20.1)
 

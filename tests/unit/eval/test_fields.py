@@ -54,18 +54,18 @@ def test_field_matches_is_true_for_an_equivalent_amount():
 
 
 def test_field_matches_is_false_on_a_different_client_name():
-    assert not field_matches("customer_name", "DURAND INDUSTRIES SAS", "DURAND INDUSTRIE SAS")
+    assert not field_matches("customer_name", "CALDER LOGISTICS SAS", "CALDER LOGISTIC SAS")
 
 
 def test_mismatched_fields_lists_only_the_wrong_ones():
     fields = ContractFields(
-        customer_name="DURAND INDUSTRIES SAS",
+        customer_name="CALDER LOGISTICS SAS",
         start_date=date(2026, 1, 1),
         monthly_subscription=Decimal("4600"),
         currency="EUR",
     )
     expected = {
-        "customer_name": "DURAND INDUSTRIES SAS",
+        "customer_name": "CALDER LOGISTICS SAS",
         "start_date": "2026-01-01",
         "monthly_subscription": "4700.00",
         "currency": "EUR",

@@ -19,7 +19,7 @@ REFERENCE = [
     },
     {
         "id": "q02",
-        "question": "Quel est le taux de marge du client Durand ?",
+        "question": "Quel est le taux de marge du client Calder ?",
         "expected_kind": "scalar",
         "expected_value": "0.1940",
         "dashboard": "overview",

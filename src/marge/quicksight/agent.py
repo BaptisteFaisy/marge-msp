@@ -73,7 +73,7 @@ _EXAMPLES: tuple[AgentExample, ...] = (
     ),
     AgentExample(
         example_id="EX-02",
-        question="Why did the margin of client Durand drop in October?",
+        question="Why did the margin of client Calder Logistics drop in October?",
         expected_answer=(
             "The margin of the client for October, the margin rate of the previous month, and the "
             "post that explains the drop, taken from the cost by nature: labour, tooling, AWS "

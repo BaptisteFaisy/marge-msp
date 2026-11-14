@@ -129,7 +129,7 @@ def test_mcp_handler_lists_the_three_tools(monkeypatch) -> None:
 def _client():
     from marge.domain import Client
 
-    return Client("c-001", "Durand Industries", "am-01")
+    return Client("c-001", "Calder Logistics", "am-01")
 
 
 def test_classify_pending_through_the_pipeline_stays_offline() -> None:

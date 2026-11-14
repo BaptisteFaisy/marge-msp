@@ -105,7 +105,7 @@ def test_contract_expected_fields_cover_every_version(dataset_root):
     assert len(expected) == 13
     assert set(expected) == {path.stem for path in (dataset_root / "contracts").glob("*.txt")}
     sample = expected["ctr-001-v1"]
-    assert sample["customer_name"] == "DURAND INDUSTRIES SAS"
+    assert sample["customer_name"] == "CALDER LOGISTICS SAS"
     assert sample["monthly_subscription"] == "5000.00"
     assert sample["extra_hour_rate"] == "110.00"
     assert sample["included_hours_per_month"] == "60.00"

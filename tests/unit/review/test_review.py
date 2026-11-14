@@ -74,7 +74,7 @@ def test_review_flags_a_client_below_the_threshold() -> None:
     store = _store_with_october()
     inputs = build_review_inputs(store, Month.parse("2026-10"), settings)
     assert [figure.client_id for figure in inputs.clients_below_threshold] == ["c-001"]
-    assert "Durand Industries" in render_review(inputs, settings)
+    assert "Calder Logistics" in render_review(inputs, settings)
 
 
 def test_review_is_deterministic() -> None:
